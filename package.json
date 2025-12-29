@@ -1,0 +1,412 @@
+{
+  "name": "webdav-markdown",
+  "displayName": "WebDAV Markdown Manager",
+  "description": "直接编辑和管理WebDAV服务器上的文件，支持Markdown预览",
+  "version": "0.0.1",
+  "publisher": "webdav-extension",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages",
+    "SCM Providers"
+  ],
+  "keywords": [
+    "webdav",
+    "markdown",
+    "cloud",
+    "file manager",
+    "sync"
+  ],
+  "icon": "images/icon.png",
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "webdav-sidebar",
+          "title": "WebDAV",
+          "icon": "$(cloud)"
+        }
+      ]
+    },
+    "views": {
+      "webdav-sidebar": [
+        {
+          "id": "webdavExplorer",
+          "name": "WebDAV文件",
+          "when": "true"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "webdavExplorer",
+        "contents": "还没有连接到WebDAV服务器。\n[点击连接](command:webdav.connect)"
+      }
+    ],
+    "configuration": {
+      "title": "WebDAV",
+      "properties": {
+        "webdav.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "WebDAV服务器地址，例如: https://dav.jianguoyun.com/dav"
+        },
+        "webdav.username": {
+          "type": "string",
+          "default": "",
+          "description": "WebDAV用户名"
+        },
+        "webdav.password": {
+          "type": "string",
+          "default": "",
+          "description": "WebDAV密码",
+          "scope": "machine"
+        },
+        "webdav.basePath": {
+          "type": "string",
+          "default": "/",
+          "description": "WebDAV服务器上的基础路径"
+        },
+        "webdav.useHttps": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否使用HTTPS连接WebDAV服务器"
+        },
+        "webdav.repositoryName": {
+          "type": "string",
+          "default": "WebDAV Repository",
+          "description": "仓库显示名称"
+        },
+        "webdav.localSyncPath": {
+          "type": "string",
+          "default": "${workspaceFolder}/webdav-sync/${webdav.repositoryName}",
+          "description": "本地同步路径，支持变量: ${workspaceFolder}, ${userHome}, ${documents}, ${webdav.repositoryName}"
+        },
+        "webdav.autoSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用自动同步"
+        },
+        "webdav.syncOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存时自动同步到WebDAV服务器"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "webdav.connect",
+        "title": "WebDAV: 连接服务器",
+        "category": "WebDAV",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "webdav.openSettings",
+        "title": "WebDAV: 打开设置",
+        "category": "WebDAV",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "webdav.disconnect",
+        "title": "WebDAV: 断开连接",
+        "category": "WebDAV",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "webdav.openDocumentsFolder",
+        "title": "WebDAV: 打开文档文件夹",
+        "category": "WebDAV",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "webdav.createFile",
+        "title": "WebDAV: 新建文件",
+        "category": "WebDAV",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "webdav.createFolder",
+        "title": "WebDAV: 新建文件夹",
+        "category": "WebDAV",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "webdav.delete",
+        "title": "WebDAV: 删除",
+        "category": "WebDAV",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "webdav.refresh",
+        "title": "WebDAV: 刷新",
+        "category": "WebDAV",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "webdav.openFile",
+        "title": "WebDAV: 打开文件",
+        "category": "WebDAV",
+        "icon": "$(file)"
+      },
+      {
+        "command": "webdav.openLocalFolder",
+        "title": "WebDAV: 打开本地文件夹",
+        "category": "WebDAV",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "webdav.download",
+        "title": "WebDAV: 下载",
+        "category": "WebDAV",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "webdav.upload",
+        "title": "WebDAV: 上传",
+        "category": "WebDAV",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "webdav.reconnect",
+        "title": "WebDAV: 重新连接",
+        "category": "WebDAV",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "webdav.saveFile",
+        "title": "WebDAV: 保存文件",
+        "category": "WebDAV",
+        "icon": "$(save)"
+      },
+      {
+        "command": "webdav.openPreview",
+        "title": "WebDAV: 预览Markdown",
+        "category": "WebDAV",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "webdav.saveAll",
+        "title": "WebDAV: 保存所有",
+        "category": "WebDAV",
+        "icon": "$(save-all)"
+      },
+      {
+        "command": "webdav.closeAll",
+        "title": "WebDAV: 关闭所有",
+        "category": "WebDAV",
+        "icon": "$(close-all)"
+      },
+      {
+        "command": "webdav.showEditingFiles",
+        "title": "WebDAV: 查看编辑文件",
+        "category": "WebDAV",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "webdav.showItemActions",
+        "title": "WebDAV: 显示操作菜单",
+        "category": "WebDAV",
+        "icon": "$(menu)"
+      },
+      {
+        "command": "webdav.quickCreateFile",
+        "title": "WebDAV: 快速新建文件",
+        "category": "WebDAV",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "webdav.quickCreateFolder",
+        "title": "WebDAV: 快速新建文件夹",
+        "category": "WebDAV",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "webdav.quickDelete",
+        "title": "WebDAV: 快速删除",
+        "category": "WebDAV",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "webdav.quickDownload",
+        "title": "WebDAV: 快速下载",
+        "category": "WebDAV",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "webdav.quickUpload",
+        "title": "WebDAV: 快速上传",
+        "category": "WebDAV",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "webdav.debugConnection",
+        "title": "WebDAV: 调试连接",
+        "category": "WebDAV",
+        "icon": "$(debug)"
+      },
+      {
+        "command": "webdav.checkConnection",
+        "title": "WebDAV: 检查连接状态",
+        "category": "WebDAV",
+        "icon": "$(check)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "webdav.connect",
+          "when": "view == webdavExplorer",
+          "group": "navigation@1"
+        },
+        {
+          "command": "webdav.openSettings",
+          "when": "view == webdavExplorer",
+          "group": "navigation@2"
+        },
+        {
+          "command": "webdav.refresh",
+          "when": "view == webdavExplorer",
+          "group": "navigation@3"
+        },
+        {
+          "command": "webdav.disconnect",
+          "when": "view == webdavExplorer",
+          "group": "navigation@4"
+        },
+        {
+          "command": "webdav.openLocalFolder",
+          "when": "view == webdavExplorer",
+          "group": "navigation@5"
+        },
+        {
+          "command": "webdav.quickCreateFile",
+          "when": "view == webdavExplorer",
+          "group": "actions@1"
+        },
+        {
+          "command": "webdav.quickCreateFolder",
+          "when": "view == webdavExplorer",
+          "group": "actions@2"
+        },
+        {
+          "command": "webdav.quickUpload",
+          "when": "view == webdavExplorer",
+          "group": "actions@3"
+        },
+        {
+          "command": "webdav.quickDelete",
+          "when": "view == webdavExplorer",
+          "group": "actions@4"
+        },
+        {
+          "command": "webdav.quickDownload",
+          "when": "view == webdavExplorer",
+          "group": "actions@5"
+        },
+        {
+          "command": "webdav.saveAll",
+          "when": "view == webdavExplorer",
+          "group": "actions@6"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "webdav.openFile",
+          "when": "view == webdavExplorer && viewItem == webdav-file",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.download",
+          "when": "view == webdavExplorer && viewItem == webdav-file",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.delete",
+          "when": "view == webdavExplorer && viewItem == webdav-file",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.createFile",
+          "when": "view == webdavExplorer && viewItem == webdav-directory",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.createFolder",
+          "when": "view == webdavExplorer && viewItem == webdav-directory",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.upload",
+          "when": "view == webdavExplorer && viewItem == webdav-directory",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.delete",
+          "when": "view == webdavExplorer && viewItem == webdav-directory",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.showItemActions",
+          "when": "view == webdavExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.debugConnection",
+          "when": "view == webdavExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.checkConnection",
+          "when": "view == webdavExplorer",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "webdav.connect",
+          "when": "false"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "build": "npm run compile",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "package": "vsce package",
+    "lint": "eslint src --ext ts",
+    "pretest": "npm run compile && npm run lint"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0",
+    "@vscode/test-electron": "^2.3.9"
+  },
+  "dependencies": {
+    "webdav": "^4.11.4",
+    "axios": "^1.6.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-repo/webdav-markdown-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-repo/webdav-markdown-manager/issues"
+  },
+  "homepage": "https://github.com/your-repo/webdav-markdown-manager#readme",
+  "license": "MIT",
+  "preview": true
+}
