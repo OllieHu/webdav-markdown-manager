@@ -30,13 +30,12 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
     private fileSystemProvider: WebDAVFileSystemProvider | null = null;
     private isConnecting: boolean = false;
     private currentBasePath: string = '/';
-    private config: any = null;
     private saveListeners: Map<string, vscode.Disposable> = new Map();
     private connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
     private lastError: string | null = null;
 
     constructor() {
-        this.configManager = new ConfigManager();
+        this.configManager = ConfigManager.getInstance();
     }
 
     public setWebDAVClient(client: MyWebDAVClient) {
@@ -78,18 +77,15 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         }
 
         try {
-            // 加载配置
-            this.config = await this.configManager.loadConfig();
+            // 检查配置
+            const configCheck = await this.configManager.checkConfiguration();
             
-            // 检查配置完整性
-            if (!this.config.serverUrl || !this.config.username || !this.config.password) {
-                const missingFields = [];
-                if (!this.config.serverUrl) missingFields.push('服务器地址');
-                if (!this.config.username) missingFields.push('用户名');
-                if (!this.config.password) missingFields.push('密码');
-                
-                logger.error(`配置不完整，缺少: ${missingFields.join(', ')}`);
-                vscode.window.showErrorMessage(`请先在设置中配置: ${missingFields.join(', ')}`, '打开设置').then(selection => {
+            if (!configCheck.isValid) {
+                logger.error(`配置不完整，缺少: ${configCheck.missingFields.join(', ')}`);
+                vscode.window.showErrorMessage(
+                    `请先在设置中配置: ${configCheck.missingFields.join(', ')}`, 
+                    '打开设置'
+                ).then(selection => {
                     if (selection === '打开设置') {
                         vscode.commands.executeCommand('workbench.action.openSettings', 'webdav');
                     }
@@ -99,14 +95,15 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 return;
             }
 
-            this.currentBasePath = this.config.basePath || '/';
+            const config = configCheck.config;
+            this.currentBasePath = config.basePath || '/';
             
-            logger.info(`连接参数: serverUrl=${this.config.serverUrl}, basePath=${this.currentBasePath}`);
+            logger.info(`连接参数: serverUrl=${config.serverUrl}, basePath=${this.currentBasePath}`);
             
             // 显示连接进度
             await vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: `正在连接到 ${this.getServerDisplayName(this.config.serverUrl)}...`,
+                title: `正在连接到服务器...`,
                 cancellable: true
             }, async (progress, token) => {
                 token.onCancellationRequested(() => {
@@ -118,9 +115,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 
                 // 连接服务器
                 const connected = await this.webdavClient!.connect(
-                    this.config.serverUrl,
-                    this.config.username,
-                    this.config.password,
+                    config.serverUrl,
+                    config.username,
+                    config.password,
                     this.currentBasePath
                 );
 
@@ -161,13 +158,13 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             this.isConnected = true;
             this.connectionStatus = 'connected';
             this.lastError = null;
-            logger.info(`WebDAV 连接成功: ${this.config.serverUrl}`);
+            logger.info(`WebDAV 连接成功: ${config.serverUrl}`);
             
             // 刷新文件列表
             await this.refresh();
             
             // 显示连接成功消息
-            const message = `已连接到 ${this.getServerDisplayName(this.config.serverUrl)}${this.currentBasePath !== '/' ? ` (${this.currentBasePath})` : ''}`;
+            const message = `已连接到服务器${this.currentBasePath !== '/' ? ` (${this.currentBasePath})` : ''}`;
             vscode.window.showInformationMessage(message);
             
         } catch (error: any) {
@@ -176,7 +173,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             this.lastError = error.message;
             logger.error('连接失败:', error);
             
-            // 更详细的错误处理
+            // 错误处理
             let errorMessage = '连接失败';
             if (error.message.includes('401') || error.message.includes('Unauthorized')) {
                 errorMessage = '认证失败，请检查用户名和密码';
@@ -217,15 +214,6 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         }
     }
 
-    private getServerDisplayName(serverUrl: string): string {
-        try {
-            const url = new URL(serverUrl);
-            return url.hostname;
-        } catch {
-            return serverUrl.substring(0, 30) + (serverUrl.length > 30 ? '...' : '');
-        }
-    }
-
     async tryAutoConnect(): Promise<boolean> {
         if (this.isConnected || this.isConnecting) {
             logger.debug('已经连接或正在连接中，跳过自动连接');
@@ -238,23 +226,23 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         }
         
         try {
-            this.config = await this.configManager.loadConfig();
+            // 检查配置是否完整
+            const configCheck = await this.configManager.checkConfiguration();
             
-            this.currentBasePath = this.config.basePath || '/';
-            
-            logger.debug(`自动连接检查: serverUrl=${this.config.serverUrl || '空'}, username=${this.config.username || '空'}, password=${this.config.password ? '已设置' : '未设置'}, basePath=${this.currentBasePath}`);
-            
-            if (!this.config.serverUrl || !this.config.username || !this.config.password) {
+            if (!configCheck.isValid) {
                 logger.debug('配置不完整，跳过自动连接');
                 return false;
             }
+
+            const config = configCheck.config;
+            this.currentBasePath = config.basePath || '/';
             
             logger.info('尝试自动连接WebDAV服务器...');
             
             const connected = await this.webdavClient.connect(
-                this.config.serverUrl,
-                this.config.username,
-                this.config.password,
+                config.serverUrl,
+                config.username,
+                config.password,
                 this.currentBasePath
             );
             
@@ -815,7 +803,8 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 progress.report({ increment: 50, message: '保存到本地...' });
                 
                 // 使用配置中的本地同步路径
-                const localSyncPath = this.config?.localSyncPath || this.configManager.getLocalSyncPath();
+                const configCheck = await this.configManager.checkConfiguration();
+                const localSyncPath = configCheck.config.localSyncPath || this.configManager.getLocalSyncPath();
                 
                 const relativePath = this.getRelativePath(item.path);
                 const localRelativePath = relativePath === '/' ? '' : relativePath.replace(/^\//, '');
@@ -835,10 +824,11 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
 
             vscode.window.showInformationMessage(`已下载: ${item.label}`, '打开文件夹').then(selection => {
                 if (selection === '打开文件夹') {
-                    const localSyncPath = this.config?.localSyncPath || this.configManager.getLocalSyncPath();
+                    const configCheck = this.configManager.checkConfiguration();
+                    const localSyncPath = configCheck.then(c => c.config.localSyncPath) || this.configManager.getLocalSyncPath();
                     const relativePath = this.getRelativePath(item.path);
                     const localRelativePath = relativePath === '/' ? '' : relativePath.replace(/^\//, '');
-                    const localPath = path.join(localSyncPath, localRelativePath);
+                    const localPath = path.join(localSyncPath.toString(), localRelativePath);
                     const dir = path.dirname(localPath);
                     
                     const { exec } = require('child_process');

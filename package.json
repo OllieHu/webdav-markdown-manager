@@ -2,7 +2,7 @@
   "name": "webdav-markdown",
   "displayName": "WebDAV Markdown Manager",
   "description": "直接编辑和管理WebDAV服务器上的文件，支持Markdown预览",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "webdav-extension",
   "engines": {
     "vscode": "^1.80.0"
@@ -19,7 +19,7 @@
     "file manager",
     "sync"
   ],
-  "icon": "images/icon.png",
+  "icon": "images/icon-128.png",
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished"
@@ -30,7 +30,7 @@
         {
           "id": "webdav-sidebar",
           "title": "WebDAV",
-          "icon": "$(cloud)"
+          "icon": "images/cloud-icon.png"
         }
       ]
     },
@@ -126,6 +126,18 @@
         "icon": "$(folder-opened)"
       },
       {
+        "command": "webdav.refresh",
+        "title": "WebDAV: 刷新",
+        "category": "WebDAV",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "webdav.openLocalFolder",
+        "title": "WebDAV: 打开本地文件夹",
+        "category": "WebDAV",
+        "icon": "$(folder-opened)"
+      },
+      {
         "command": "webdav.createFile",
         "title": "WebDAV: 新建文件",
         "category": "WebDAV",
@@ -144,22 +156,10 @@
         "icon": "$(trash)"
       },
       {
-        "command": "webdav.refresh",
-        "title": "WebDAV: 刷新",
-        "category": "WebDAV",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "webdav.openFile",
         "title": "WebDAV: 打开文件",
         "category": "WebDAV",
         "icon": "$(file)"
-      },
-      {
-        "command": "webdav.openLocalFolder",
-        "title": "WebDAV: 打开本地文件夹",
-        "category": "WebDAV",
-        "icon": "$(folder-opened)"
       },
       {
         "command": "webdav.download",
@@ -256,6 +256,12 @@
         "title": "WebDAV: 检查连接状态",
         "category": "WebDAV",
         "icon": "$(check)"
+      },
+      {
+        "command": "webdav.showConfigStatus",
+        "title": "WebDAV: 显示配置状态",
+        "category": "WebDAV",
+        "icon": "$(settings)"
       }
     ],
     "menus": {
@@ -364,6 +370,11 @@
         },
         {
           "command": "webdav.checkConnection",
+          "when": "view == webdavExplorer",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.showConfigStatus",
           "when": "view == webdavExplorer",
           "group": "inline"
         }

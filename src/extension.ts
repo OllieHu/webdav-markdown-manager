@@ -16,7 +16,7 @@ export async function activate(context: vscode.ExtensionContext) {
     
     logger.info('WebDAV Markdown Manager 扩展已激活');
     
-    const configManager = new ConfigManager();
+    const configManager = ConfigManager.getInstance();
     logger.debug('配置管理器已初始化');
     
     const webdavClient = new MyWebDAVClient(context);
@@ -66,12 +66,9 @@ export async function activate(context: vscode.ExtensionContext) {
     // 更新TreeView描述以显示连接状态
     const updateTreeViewDescription = async () => {
         if (treeView.visible) {
-            const config = await configManager.loadConfig();
-            const serverName = config.serverUrl ? new URL(config.serverUrl).hostname : '未连接';
-            
             if (treeDataProvider.isConnectedToServer()) {
-                treeView.description = `已连接: ${serverName}`;
-                treeView.title = `WebDAV: ${serverName}`;
+                treeView.description = `已连接`;
+                treeView.title = `WebDAV 文件管理器`;
             } else {
                 const status = treeDataProvider.getConnectionStatus();
                 if (status === 'connecting') {
@@ -96,6 +93,21 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('webdav.connect', async () => {
             try {
                 logger.info('正在连接WebDAV服务器...');
+                
+                // 先检查配置
+                const configCheck = await configManager.checkConfiguration();
+                if (!configCheck.isValid) {
+                    vscode.window.showErrorMessage(
+                        `配置不完整，请设置: ${configCheck.missingFields.join(', ')}`, 
+                        '打开设置'
+                    ).then(selection => {
+                        if (selection === '打开设置') {
+                            vscode.commands.executeCommand('workbench.action.openSettings', 'webdav');
+                        }
+                    });
+                    return;
+                }
+                
                 await treeDataProvider.connect();
                 isWebDAVConnected = true;
                 await updateTreeViewDescription();
@@ -103,7 +115,6 @@ export async function activate(context: vscode.ExtensionContext) {
             } catch (error) {
                 const errorMsg = error instanceof Error ? error.message : String(error);
                 logger.error('连接失败', errorMsg);
-                // 错误已经在treeDataProvider中处理
             }
         }),
         
@@ -339,7 +350,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
         
-        // 显示项目操作菜单 - 修复空目录项的处理
+        // 显示项目操作菜单
         vscode.commands.registerCommand('webdav.showItemActions', async (item?: WebDAVTreeItem) => {
             if (!item) {
                 // 如果没有传入item，尝试从当前选择获取
@@ -421,65 +432,6 @@ export async function activate(context: vscode.ExtensionContext) {
             await vscode.commands.executeCommand(selected.command, item);
         }),
         
-        // 快速操作命令 - 用于标题栏按钮
-        vscode.commands.registerCommand('webdav.quickCreateFile', async () => {
-            // 获取当前选中的目录或使用根目录
-            const selection = treeView.selection[0];
-            const parentPath = selection && selection.type === 'directory' ? selection.relativePath : '/';
-            
-            const fileName = await vscode.window.showInputBox({
-                prompt: '请输入文件名',
-                placeHolder: '例如: newfile.txt',
-                validateInput: (value) => {
-                    if (!value.trim()) return '文件名不能为空';
-                    if (value.includes('/') || value.includes('\\')) return '文件名不能包含路径分隔符';
-                    return null;
-                }
-            });
-
-            if (fileName) {
-                await treeDataProvider.createFile(selection);
-            }
-        }),
-        
-        vscode.commands.registerCommand('webdav.quickCreateFolder', async () => {
-            // 获取当前选中的目录或使用根目录
-            const selection = treeView.selection[0];
-            const parentPath = selection && selection.type === 'directory' ? selection.relativePath : '/';
-            
-            await treeDataProvider.createFolder(selection);
-        }),
-        
-        vscode.commands.registerCommand('webdav.quickDelete', async () => {
-            // 获取当前选中的项目
-            const selection = treeView.selection[0];
-            if (!selection) {
-                vscode.window.showWarningMessage('请先选择一个文件或文件夹');
-                return;
-            }
-            
-            await treeDataProvider.deleteItem(selection);
-        }),
-        
-        vscode.commands.registerCommand('webdav.quickDownload', async () => {
-            // 获取当前选中的项目
-            const selection = treeView.selection[0];
-            if (!selection) {
-                vscode.window.showWarningMessage('请先选择一个文件或文件夹');
-                return;
-            }
-            
-            await treeDataProvider.downloadItem(selection);
-        }),
-        
-        vscode.commands.registerCommand('webdav.quickUpload', async () => {
-            // 获取当前选中的目录或使用根目录
-            const selection = treeView.selection[0];
-            const parentPath = selection && selection.type === 'directory' ? selection.relativePath : '/';
-            
-            await treeDataProvider.uploadFile(selection);
-        }),
-        
         // 调试连接命令
         vscode.commands.registerCommand('webdav.debugConnection', async () => {
             try {
@@ -509,9 +461,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // 检查连接状态
         vscode.commands.registerCommand('webdav.checkConnection', async () => {
             if (treeDataProvider.isConnectedToServer()) {
-                const config = await configManager.loadConfig();
-                const serverName = config.serverUrl ? new URL(config.serverUrl).hostname : '未知服务器';
-                vscode.window.showInformationMessage(`已连接到 ${serverName}`);
+                vscode.window.showInformationMessage(`已连接到服务器`);
             } else {
                 const status = treeDataProvider.getConnectionStatus();
                 if (status === 'connecting') {
@@ -522,37 +472,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 } else {
                     vscode.window.showInformationMessage('未连接');
                 }
-            }
-        }),
-        
-        // 测试连接并创建测试文件
-        vscode.commands.registerCommand('webdav.testCreate', async () => {
-            try {
-                const config = await configManager.loadConfig();
-                
-                if (!config.serverUrl || !config.username || !config.password) {
-                    vscode.window.showErrorMessage('请先配置服务器地址、用户名和密码');
-                    return;
-                }
-                
-                const testWebdavClient = new MyWebDAVClient(context);
-                
-                await testWebdavClient.connect(
-                    config.serverUrl,
-                    config.username,
-                    config.password,
-                    config.basePath
-                );
-                
-                const testPath = config.basePath === '/' ? '/testfile.md' : `${config.basePath}/testfile.md`;
-                await testWebdavClient.createFile(testPath, '# 测试文件\n这是测试内容');
-                
-                vscode.window.showInformationMessage('测试文件创建成功，请刷新查看');
-                
-                // 刷新树视图
-                await treeDataProvider.refresh();
-            } catch (error) {
-                vscode.window.showErrorMessage(`测试失败: ${error instanceof Error ? error.message : String(error)}`);
             }
         })
     ];
@@ -571,85 +490,29 @@ export async function activate(context: vscode.ExtensionContext) {
         logger.error('初始刷新失败', error);
     }
     
-    // 尝试自动连接
+    // 检查配置并提示
     try {
-        logger.info('测试配置加载...');
-        const config = await configManager.loadConfig();
+        logger.info('检查配置...');
+        const configCheck = await configManager.checkConfiguration();
         
-        // 检查配置是否完整
-        const hasCompleteConfig = config.serverUrl && config.username && config.password;
-        
-        logger.info('配置检查', {
-            serverUrl: config.serverUrl || '未设置',
-            username: config.username || '未设置',
-            basePath: config.basePath || '/',
-            hasPassword: !!config.password,
-            hasCompleteConfig
-        });
-        
-        if (hasCompleteConfig) {
-            logger.info('检测到完整配置，将在2秒后尝试自动连接...');
+        if (!configCheck.isValid) {
+            logger.info(`配置不完整: ${configCheck.missingFields.join(', ')}`);
             
-            // 延迟连接，确保UI完全加载
-            setTimeout(async () => {
-                try {
-                    logger.info('开始自动连接...');
-                    
-                    // 显示连接状态
-                    await vscode.window.withProgress({
-                        location: vscode.ProgressLocation.Window,
-                        title: '正在自动连接WebDAV...',
-                        cancellable: false
-                    }, async (progress) => {
-                        progress.report({ increment: 0 });
-                        
-                        const connected = await treeDataProvider.tryAutoConnect();
-                        if (connected) {
-                            isWebDAVConnected = true;
-                            await updateTreeViewDescription();
-                            await treeDataProvider.refresh();
-                            logger.info('自动连接完成');
-                            progress.report({ increment: 100 });
-                        } else {
-                            logger.info('自动连接失败，需要手动连接');
-                        }
-                    });
-                    
-                } catch (error) {
-                    const errorMsg = error instanceof Error ? error.message : String(error);
-                    logger.info('自动连接失败:', errorMsg);
-                    
-                    // 仅在重要错误时显示提示
-                    if (errorMsg.includes('401') || errorMsg.includes('认证失败')) {
-                        vscode.window.showWarningMessage('WebDAV自动连接失败: 认证失败，请检查用户名和密码');
+            setTimeout(() => {
+                vscode.window.showInformationMessage(
+                    `WebDAV扩展需要配置: ${configCheck.missingFields.join(', ')}`,
+                    '立即配置'
+                ).then(selection => {
+                    if (selection === '立即配置') {
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'webdav');
                     }
-                }
+                });
             }, 2000);
         } else {
-            logger.info('配置不完整，跳过自动连接');
-            const missingFields: string[] = [];
-            if (!config.serverUrl) missingFields.push('服务器地址');
-            if (!config.username) missingFields.push('用户名');
-            if (!config.password) missingFields.push('密码');
-            
-            logger.info(`请设置: ${missingFields.join(', ')}`);
-            
-            // 显示友好提示
-            if (missingFields.length > 0) {
-                setTimeout(() => {
-                    vscode.window.showInformationMessage(
-                        `WebDAV扩展已加载，请配置${missingFields.join('、')}`,
-                        '打开设置'
-                    ).then(selection => {
-                        if (selection === '打开设置') {
-                            vscode.commands.executeCommand('webdav.openSettings');
-                        }
-                    });
-                }, 3000);
-            }
+            logger.info('配置完整，可以连接');
         }
     } catch (error) {
-        logger.error('配置加载测试失败', error);
+        logger.error('配置检查失败', error);
     }
     
     logger.info('WebDAV Markdown Manager 扩展激活完成');

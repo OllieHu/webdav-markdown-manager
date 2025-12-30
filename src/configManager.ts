@@ -1,4 +1,3 @@
-
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
@@ -24,174 +23,113 @@ export interface WebDAVConfig {
 }
 
 export class ConfigManager {
-    private static readonly CONFIG_FILE = 'webdav-config.json';
-    private configPath: string;
-    private _currentConfig: WebDAVConfig | null = null;
-    private configLoadPromise: Promise<WebDAVConfig> | null = null;
+    private static instance: ConfigManager;
 
-    constructor() {
+    private constructor() {
         logger.info('ConfigManager初始化开始');
-        this.configPath = this.getConfigFilePath();
-        logger.info(`配置路径: ${this.configPath}`);
         logger.info('ConfigManager初始化完成');
     }
 
-    private getConfigFilePath(): string {
-        const homeDir = os.homedir();
-        const configDir = path.join(homeDir, '.vscode-webdav');
-        
-        logger.debug(`用户主目录: ${homeDir}`);
-        logger.debug(`配置目录: ${configDir}`);
-        
-        if (!fs.existsSync(configDir)) {
-            logger.info(`创建配置目录: ${configDir}`);
-            try {
-                fs.mkdirSync(configDir, { recursive: true });
-                logger.info('配置目录创建成功');
-            } catch (error) {
-                logger.error('创建配置目录失败', error);
-            }
+    public static getInstance(): ConfigManager {
+        if (!ConfigManager.instance) {
+            ConfigManager.instance = new ConfigManager();
         }
-
-        return path.join(configDir, ConfigManager.CONFIG_FILE);
+        return ConfigManager.instance;
     }
 
+    // 直接从VS Code设置获取配置（不使用缓存）
     async loadConfig(): Promise<WebDAVConfig> {
-        // 如果正在加载，等待加载完成
-        if (this.configLoadPromise) {
-            logger.debug('配置正在加载中，等待完成...');
-            return await this.configLoadPromise;
-        }
-
-        // 如果已经加载过，直接返回缓存
-        if (this._currentConfig) {
-            logger.debug('使用缓存的配置');
-            return this._currentConfig;
-        }
-
-        this.configLoadPromise = this.loadConfigInternal();
         try {
-            const config = await this.configLoadPromise;
-            this._currentConfig = config;
-            return config;
-        } finally {
-            this.configLoadPromise = null;
-        }
-    }
-
-    private async loadConfigInternal(): Promise<WebDAVConfig> {
-        try {
-            logger.info('开始加载WebDAV配置...');
+            logger.info('开始从VS Code设置加载WebDAV配置...');
             
-            // 从VS Code设置加载
+            // 直接从VS Code设置加载（不使用缓存）
             const vscodeConfig = vscode.workspace.getConfiguration('webdav');
-            const defaultConfig = this.getDefaultConfig();
-
-            let config: WebDAVConfig = {
-                serverUrl: String(vscodeConfig.get('serverUrl') || defaultConfig.serverUrl || '').trim(),
-                username: String(vscodeConfig.get('username') || defaultConfig.username || '').trim(),
-                password: String(vscodeConfig.get('password') || defaultConfig.password || '').trim(),
-                basePath: String(vscodeConfig.get('basePath') || defaultConfig.basePath || '/').trim(),
-                useHttps: Boolean(vscodeConfig.get('useHttps', defaultConfig.useHttps)),
-                repositoryName: String(vscodeConfig.get('repositoryName') || defaultConfig.repositoryName || 'WebDAV Repository').trim(),
-                localSyncPath: this.resolveLocalPath(String(vscodeConfig.get('localSyncPath') || defaultConfig.localSyncPath)),
-                autoSync: Boolean(vscodeConfig.get('autoSync', defaultConfig.autoSync)),
-                syncOnSave: Boolean(vscodeConfig.get('syncOnSave', defaultConfig.syncOnSave))
-            };
-
-            logger.info('从VS Code加载的配置完成');
             
-            // 如果VS Code设置为空，尝试从持久化文件加载
-            const fileExists = fs.existsSync(this.configPath);
-            logger.debug(`检查配置文件是否存在: ${this.configPath}, 存在: ${fileExists}`);
+            // 获取所有配置项
+            const serverUrl = vscodeConfig.get<string>('serverUrl', '');
+            const username = vscodeConfig.get<string>('username', '');
+            const password = vscodeConfig.get<string>('password', '');
+            const basePath = vscodeConfig.get<string>('basePath', '/');
+            const useHttps = vscodeConfig.get<boolean>('useHttps', true);
+            const repositoryName = vscodeConfig.get<string>('repositoryName', 'WebDAV Repository');
+            const localSyncPath = vscodeConfig.get<string>('localSyncPath', '');
+            const autoSync = vscodeConfig.get<boolean>('autoSync', true);
+            const syncOnSave = vscodeConfig.get<boolean>('syncOnSave', true);
             
-            if ((!config.serverUrl || !config.username || !config.password) && fileExists) {
-                logger.info('尝试从配置文件加载...');
-                try {
-                    const fileContent = fs.readFileSync(this.configPath, 'utf8');
-                    const persistentConfig = JSON.parse(fileContent) as WebDAVConfig;
-                    
-                    // 仅当VS Code设置中没有相应值时，使用文件中的值
-                    if (!config.serverUrl && persistentConfig.serverUrl) {
-                        config.serverUrl = String(persistentConfig.serverUrl).trim();
-                    }
-                    if (!config.username && persistentConfig.username) {
-                        config.username = String(persistentConfig.username).trim();
-                    }
-                    if (!config.password && persistentConfig.password) {
-                        config.password = String(persistentConfig.password).trim();
-                    }
-                    if (!config.basePath && persistentConfig.basePath) {
-                        config.basePath = String(persistentConfig.basePath).trim();
-                    }
-                    
-                    logger.info('成功从文件加载配置');
-                } catch (fileError) {
-                    logger.error('从文件加载配置失败', fileError);
-                }
-            }
-
-            logger.info('配置加载完成', {
-                serverUrl: config.serverUrl ? `${config.serverUrl.substring(0, 20)}...` : '空',
-                username: config.username ? `${config.username.substring(0, 5)}...` : '空',
-                basePath: config.basePath,
-                hasPassword: !!config.password
+            logger.info('从VS Code设置加载的配置:', {
+                serverUrl: serverUrl || '空',
+                username: username || '空',
+                password: password ? '已设置' : '未设置',
+                basePath,
+                useHttps,
+                repositoryName,
+                localSyncPath: localSyncPath || '空',
+                autoSync,
+                syncOnSave
             });
-
+            
+            // 解析本地路径
+            const resolvedLocalPath = this.resolveLocalPath(localSyncPath);
+            
+            const config: WebDAVConfig = {
+                serverUrl: serverUrl ? serverUrl.trim() : '',
+                username: username ? username.trim() : '',
+                password: password ? password.trim() : '',
+                basePath: basePath ? basePath.trim() : '/',
+                useHttps,
+                repositoryName: repositoryName ? repositoryName.trim() : 'WebDAV Repository',
+                localSyncPath: resolvedLocalPath,
+                autoSync,
+                syncOnSave
+            };
+            
+            logger.info('配置加载完成');
             return config;
+            
         } catch (error) {
-            logger.error('加载配置失败', error);
-            const defaultConfig = this.getDefaultConfig();
-            return defaultConfig;
+            logger.error('从VS Code设置加载配置失败', error);
+            // 返回默认配置
+            return this.getDefaultConfig();
         }
     }
 
     async saveConfig(config: WebDAVConfig): Promise<void> {
         try {
-            logger.info('开始保存WebDAV配置...');
+            logger.info('开始保存WebDAV配置到VS Code设置...');
             
             // 清理配置
             const cleanConfig = {
-                ...config,
                 serverUrl: (config.serverUrl || '').trim(),
                 username: (config.username || '').trim(),
                 password: (config.password || '').trim(),
                 basePath: (config.basePath || '/').trim(),
-                repositoryName: (config.repositoryName || 'WebDAV Repository').trim()
+                useHttps: config.useHttps,
+                repositoryName: (config.repositoryName || 'WebDAV Repository').trim(),
+                localSyncPath: this.resolveLocalPath(config.localSyncPath),
+                autoSync: config.autoSync,
+                syncOnSave: config.syncOnSave
             };
-
+            
             // 保存到VS Code设置
             const vscodeConfig = vscode.workspace.getConfiguration('webdav');
             
-            await vscodeConfig.update('serverUrl', cleanConfig.serverUrl, vscode.ConfigurationTarget.Global);
-            await vscodeConfig.update('username', cleanConfig.username, vscode.ConfigurationTarget.Global);
-            await vscodeConfig.update('password', cleanConfig.password, vscode.ConfigurationTarget.Global);
-            await vscodeConfig.update('basePath', cleanConfig.basePath, vscode.ConfigurationTarget.Global);
-            await vscodeConfig.update('useHttps', cleanConfig.useHttps, vscode.ConfigurationTarget.Global);
-            await vscodeConfig.update('repositoryName', cleanConfig.repositoryName, vscode.ConfigurationTarget.Global);
+            // 使用异步更新所有设置
+            await Promise.all([
+                vscodeConfig.update('serverUrl', cleanConfig.serverUrl, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('username', cleanConfig.username, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('password', cleanConfig.password, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('basePath', cleanConfig.basePath, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('useHttps', cleanConfig.useHttps, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('repositoryName', cleanConfig.repositoryName, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('localSyncPath', cleanConfig.localSyncPath, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('autoSync', cleanConfig.autoSync, vscode.ConfigurationTarget.Global),
+                vscodeConfig.update('syncOnSave', cleanConfig.syncOnSave, vscode.ConfigurationTarget.Global)
+            ]);
             
-            const resolvedLocalPath = this.resolveLocalPath(cleanConfig.localSyncPath);
-            await vscodeConfig.update('localSyncPath', resolvedLocalPath, vscode.ConfigurationTarget.Global);
+            logger.info('配置已保存到VS Code设置');
             
-            await vscodeConfig.update('autoSync', cleanConfig.autoSync, vscode.ConfigurationTarget.Global);
-            await vscodeConfig.update('syncOnSave', cleanConfig.syncOnSave, vscode.ConfigurationTarget.Global);
-
-            logger.info('VS Code设置更新完成');
-
-            // 持久化到文件（不保存密码）
-            const configWithoutPassword = { ...cleanConfig, password: '' };
-            try {
-                fs.writeFileSync(this.configPath, JSON.stringify(configWithoutPassword, null, 2));
-                logger.info(`配置已保存到文件: ${this.configPath}`);
-            } catch (fileError) {
-                logger.error('保存配置文件失败', fileError);
-            }
-            
-            this._currentConfig = cleanConfig;
-            
-            logger.info('配置保存成功');
         } catch (error) {
-            logger.error('保存配置失败', error);
+            logger.error('保存配置到VS Code设置失败', error);
             throw new Error(`保存配置失败: ${error}`);
         }
     }
@@ -248,6 +186,11 @@ export class ConfigManager {
         }
         if (resolvedPath.includes('${documents}')) {
             resolvedPath = resolvedPath.replace(/\$\{documents\}/g, documentsDir);
+        }
+        if (resolvedPath.includes('${webdav.repositoryName}')) {
+            const vscodeConfig = vscode.workspace.getConfiguration('webdav');
+            const repositoryName = vscodeConfig.get<string>('repositoryName', 'WebDAV Repository');
+            resolvedPath = resolvedPath.replace(/\$\{webdav.repositoryName\}/g, repositoryName);
         }
         
         // 确保路径是绝对路径
@@ -381,10 +324,20 @@ export class ConfigManager {
     }
 
     public getCurrentConfig(): WebDAVConfig {
-        if (!this._currentConfig) {
-            return this.getDefaultConfig();
-        }
-        return { ...this._currentConfig };
+        // 每次都从VS Code设置获取最新配置
+        const vscodeConfig = vscode.workspace.getConfiguration('webdav');
+        
+        return {
+            serverUrl: vscodeConfig.get<string>('serverUrl', '') || '',
+            username: vscodeConfig.get<string>('username', '') || '',
+            password: vscodeConfig.get<string>('password', '') || '',
+            basePath: vscodeConfig.get<string>('basePath', '/') || '/',
+            useHttps: vscodeConfig.get<boolean>('useHttps', true),
+            repositoryName: vscodeConfig.get<string>('repositoryName', 'WebDAV Repository') || 'WebDAV Repository',
+            localSyncPath: this.resolveLocalPath(vscodeConfig.get<string>('localSyncPath', '')),
+            autoSync: vscodeConfig.get<boolean>('autoSync', true),
+            syncOnSave: vscodeConfig.get<boolean>('syncOnSave', true)
+        };
     }
 
     public ensureLocalSyncFolder(repositoryName?: string): string {
@@ -397,5 +350,27 @@ export class ConfigManager {
             logger.error('创建本地同步文件夹失败', error);
         }
         return syncPath;
+    }
+
+    // 新增：检查配置是否完整
+    public async checkConfiguration(): Promise<{ isValid: boolean; missingFields: string[]; config: WebDAVConfig }> {
+        const config = await this.loadConfig();
+        const missingFields: string[] = [];
+        
+        if (!config.serverUrl || config.serverUrl.trim() === '') {
+            missingFields.push('服务器地址');
+        }
+        if (!config.username || config.username.trim() === '') {
+            missingFields.push('用户名');
+        }
+        if (!config.password || config.password.trim() === '') {
+            missingFields.push('密码');
+        }
+        
+        return {
+            isValid: missingFields.length === 0,
+            missingFields,
+            config
+        };
     }
 }
