@@ -200,48 +200,95 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
         
-        // 打开本地文件夹命令
+        // 打开本地文件夹命令 - 用VS Code打开文件夹
         vscode.commands.registerCommand('webdav.openLocalFolder', async () => {
             try {
-                logger.info('打开本地同步文件夹');
-                const configCheck = await configManager.checkConfiguration();
-                const localSyncPath = configCheck.config.localSyncPath || configManager.getLocalSyncPath();
+                logger.info('=== 开始用VS Code打开本地同步文件夹 ===');
                 
-                if (!localSyncPath) {
-                    vscode.window.showErrorMessage('本地同步路径未配置');
+                // 检查配置
+                const configCheck = await configManager.checkConfiguration();
+                logger.info('配置检查结果:', configCheck);
+                
+                // 获取本地同步路径
+                const localSyncPath = configCheck.config.localSyncPath || configManager.getLocalSyncPath();
+                logger.info('本地同步路径:', localSyncPath);
+                
+                if (!localSyncPath || localSyncPath.trim() === '') {
+                    logger.error('本地同步路径未配置或为空');
+                    vscode.window.showErrorMessage('本地同步路径未配置，请在设置中配置本地同步路径', '打开设置').then(selection => {
+                        if (selection === '打开设置') {
+                            vscode.commands.executeCommand('workbench.action.openSettings', 'webdav');
+                        }
+                    });
                     return;
                 }
                 
+                // 确保路径是绝对路径
+                let absolutePath = localSyncPath;
+                if (!path.isAbsolute(absolutePath)) {
+                    absolutePath = path.resolve(os.homedir(), absolutePath);
+                    logger.info('转换为绝对路径:', absolutePath);
+                }
+                
+                logger.info('检查文件夹是否存在:', absolutePath);
+                
                 // 确保文件夹存在
-                if (!fs.existsSync(localSyncPath)) {
-                    fs.mkdirSync(localSyncPath, { recursive: true });
-                    logger.info(`创建本地同步文件夹: ${localSyncPath}`);
-                }
-                
-                // 打开文件夹
-                const platform = os.platform();
-                let command: string;
-                
-                switch (platform) {
-                    case 'win32':
-                        command = `explorer "${localSyncPath}"`;
-                        break;
-                    case 'darwin':
-                        command = `open "${localSyncPath}"`;
-                        break;
-                    case 'linux':
-                        command = `xdg-open "${localSyncPath}"`;
-                        break;
-                    default:
-                        vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(localSyncPath));
+                if (!fs.existsSync(absolutePath)) {
+                    logger.info('文件夹不存在，尝试创建:', absolutePath);
+                    try {
+                        fs.mkdirSync(absolutePath, { recursive: true });
+                        logger.info(`创建本地同步文件夹成功: ${absolutePath}`);
+                        vscode.window.showInformationMessage(`已创建本地同步文件夹: ${path.basename(absolutePath)}`);
+                    } catch (mkdirError) {
+                        logger.error('创建文件夹失败:', mkdirError);
+                        vscode.window.showErrorMessage(`创建本地同步文件夹失败: ${mkdirError instanceof Error ? mkdirError.message : String(mkdirError)}`);
                         return;
+                    }
+                } else {
+                    logger.info('文件夹已存在:', absolutePath);
                 }
                 
-                require('child_process').exec(command);
-                logger.info(`已打开本地同步文件夹: ${localSyncPath}`);
+                // 用VS Code打开文件夹
+                logger.info('用VS Code打开文件夹:', absolutePath);
+                
+                const uri = vscode.Uri.file(absolutePath);
+                
+                // 询问用户是否在当前窗口或新窗口打开
+                const choice = await vscode.window.showQuickPick(
+                    [
+                        { label: '在当前窗口打开', description: '替换当前工作区' },
+                        { label: '在新窗口打开', description: '打开新的VS Code窗口' },
+                        { label: '取消', description: '取消操作' }
+                    ],
+                    {
+                        placeHolder: '选择如何打开文件夹'
+                    }
+                );
+                
+                if (!choice || choice.label === '取消') {
+                    logger.info('用户取消了打开文件夹操作');
+                    return;
+                }
+                
+                if (choice.label === '在当前窗口打开') {
+                    // 在当前窗口打开文件夹（会替换当前工作区）
+                    logger.info('在当前窗口打开文件夹');
+                    await vscode.commands.executeCommand('vscode.openFolder', uri);
+                } else if (choice.label === '在新窗口打开') {
+                    // 在新窗口打开文件夹
+                    logger.info('在新窗口打开文件夹');
+                    await vscode.commands.executeCommand('vscode.openFolder', uri, true);
+                }
+                
+                logger.info(`成功用VS Code打开本地同步文件夹: ${absolutePath}`);
+                
             } catch (error) {
-                logger.error('打开本地同步文件夹失败', error);
-                vscode.window.showErrorMessage(`打开本地同步文件夹失败: ${error instanceof Error ? error.message : String(error)}`);
+                logger.error('用VS Code打开本地同步文件夹失败', error);
+                vscode.window.showErrorMessage(`打开本地同步文件夹失败: ${error instanceof Error ? error.message : String(error)}`, '查看日志').then(selection => {
+                    if (selection === '查看日志') {
+                        outputChannel.show();
+                    }
+                });
             }
         }),
         
@@ -601,7 +648,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         }),
         
-        // 打开文档文件夹命令
+        // 打开文档文件夹命令（另一个命令，打开系统文档文件夹）
         vscode.commands.registerCommand('webdav.openDocumentsFolder', async () => {
             try {
                 await configManager.openDocumentsFolder();
