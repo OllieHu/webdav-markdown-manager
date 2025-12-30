@@ -226,6 +226,70 @@
         "title": "WebDAV: 检查连接状态",
         "category": "WebDAV",
         "icon": "$(check)"
+      },
+      {
+        "command": "webdav.rename",
+        "title": "WebDAV: 重命名",
+        "category": "WebDAV",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "webdav.cut",
+        "title": "WebDAV: 剪切",
+        "category": "WebDAV",
+        "icon": "$(cut)"
+      },
+      {
+        "command": "webdav.copy",
+        "title": "WebDAV: 复制",
+        "category": "WebDAV",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "webdav.paste",
+        "title": "WebDAV: 粘贴",
+        "category": "WebDAV",
+        "icon": "$(paste)"
+      },
+      {
+        "command": "webdav.pasteToRoot",
+        "title": "WebDAV: 粘贴到根目录",
+        "category": "WebDAV",
+        "icon": "$(paste)"
+      },
+      {
+        "command": "webdav.clearClipboard",
+        "title": "WebDAV: 清空剪贴板",
+        "category": "WebDAV",
+        "icon": "$(close)"
+      },
+      {
+        "command": "webdav.showClipboard",
+        "title": "WebDAV: 显示剪贴板状态",
+        "category": "WebDAV",
+        "icon": "$(clipboard)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "webdav.rename",
+        "key": "f2",
+        "when": "webdavExplorerFocus"
+      },
+      {
+        "command": "webdav.cut",
+        "key": "ctrl+x",
+        "when": "webdavExplorerFocus"
+      },
+      {
+        "command": "webdav.copy",
+        "key": "ctrl+c",
+        "when": "webdavExplorerFocus"
+      },
+      {
+        "command": "webdav.paste",
+        "key": "ctrl+v",
+        "when": "webdavExplorerFocus"
       }
     ],
     "menus": {
@@ -246,6 +310,11 @@
           "group": "navigation"
         },
         {
+          "command": "webdav.debugConnection",
+          "when": "view == webdavExplorer",
+          "group": "navigation"
+        },
+        {
           "command": "webdav.disconnect",
           "when": "view == webdavExplorer",
           "group": "navigation"
@@ -256,18 +325,8 @@
           "group": "navigation"
         },
         {
-          "command": "webdav.createFile",
-          "when": "view == webdavExplorer",
-          "group": "navigation"
-        },
-        {
-          "command": "webdav.createFolder",
-          "when": "view == webdavExplorer",
-          "group": "navigation"
-        },
-        {
-          "command": "webdav.upload",
-          "when": "view == webdavExplorer",
+          "command": "webdav.pasteToRoot",
+          "when": "view == webdavExplorer && webdavClipboardNotEmpty",
           "group": "navigation"
         }
       ],
@@ -288,6 +347,11 @@
           "group": "inline"
         },
         {
+          "command": "webdav.paste",
+          "when": "view == webdavExplorer && viewItem == webdav-file && webdavClipboardNotEmpty",
+          "group": "inline"
+        },
+        {
           "command": "webdav.createFile",
           "when": "view == webdavExplorer && viewItem == webdav-directory",
           "group": "inline"
@@ -308,12 +372,12 @@
           "group": "inline"
         },
         {
-          "command": "webdav.showItemActions",
-          "when": "view == webdavExplorer",
+          "command": "webdav.paste",
+          "when": "view == webdavExplorer && viewItem == webdav-directory && webdavClipboardNotEmpty",
           "group": "inline"
         },
         {
-          "command": "webdav.debugConnection",
+          "command": "webdav.showItemActions",
           "when": "view == webdavExplorer",
           "group": "inline"
         },
@@ -321,6 +385,44 @@
           "command": "webdav.checkConnection",
           "when": "view == webdavExplorer",
           "group": "inline"
+        },
+        {
+          "command": "webdav.rename",
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.cut",
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.copy",
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "inline"
+        },
+        {
+          "command": "webdav.clearClipboard",
+          "when": "view == webdavExplorer && webdavClipboardNotEmpty",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "webdav.rename",
+          "when": "webdavExplorerFocus"
+        },
+        {
+          "command": "webdav.cut",
+          "when": "webdavExplorerFocus"
+        },
+        {
+          "command": "webdav.copy",
+          "when": "webdavExplorerFocus"
+        },
+        {
+          "command": "webdav.paste",
+          "when": "webdavExplorerFocus"
         }
       ]
     }

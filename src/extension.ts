@@ -91,6 +91,15 @@ export async function activate(context: vscode.ExtensionContext) {
         updateTreeViewDescription();
     });
     
+    // 设置初始剪贴板上下文
+    vscode.commands.executeCommand('setContext', 'webdavClipboardNotEmpty', false);
+    
+    // 更新剪贴板上下文
+    const updateClipboardContext = () => {
+        const clipboardStatus = treeDataProvider.getClipboardStatus();
+        vscode.commands.executeCommand('setContext', 'webdavClipboardNotEmpty', !!clipboardStatus);
+    };
+    
     // 注册所有命令
     const commands = [
         // 连接命令 - 通用连接
@@ -174,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext) {
             logger.info('已断开WebDAV连接');
         }),
         
-        // 调试连接命令
+        // 调试连接命令 - 从顶层工具栏调用
         vscode.commands.registerCommand('webdav.debugConnection', async () => {
             try {
                 const config = await configManager.loadConfig();
@@ -309,6 +318,9 @@ export async function activate(context: vscode.ExtensionContext) {
                         { label: '新建文件', description: '在当前目录创建新文件', command: 'webdav.createFile' },
                         { label: '新建文件夹', description: '在当前目录创建新文件夹', command: 'webdav.createFolder' },
                         { label: '上传文件', description: '上传文件到当前目录', command: 'webdav.upload' },
+                        { label: '重命名', description: '重命名此文件夹', command: 'webdav.rename' },
+                        { label: '剪切', description: '剪切此文件夹', command: 'webdav.cut' },
+                        { label: '复制', description: '复制此文件夹', command: 'webdav.copy' },
                         { label: '删除', description: '删除此文件夹', command: 'webdav.delete' },
                         { label: '刷新', description: '刷新当前目录', command: 'webdav.refresh' }
                     );
@@ -316,6 +328,9 @@ export async function activate(context: vscode.ExtensionContext) {
                     options.push(
                         { label: '打开文件', description: '在编辑器中打开此文件', command: 'webdav.openFile' },
                         { label: '下载', description: '下载文件到本地', command: 'webdav.download' },
+                        { label: '重命名', description: '重命名此文件', command: 'webdav.rename' },
+                        { label: '剪切', description: '剪切此文件', command: 'webdav.cut' },
+                        { label: '复制', description: '复制此文件', command: 'webdav.copy' },
                         { label: '删除', description: '删除此文件', command: 'webdav.delete' }
                     );
                 } else if (item.id === 'connect' || item.id === 'auth-error' || 
@@ -332,6 +347,17 @@ export async function activate(context: vscode.ExtensionContext) {
                         { label: '新建文件夹', description: '在当前目录创建新文件夹', command: 'webdav.createFolder' },
                         { label: '上传文件', description: '上传文件到当前目录', command: 'webdav.upload' }
                     );
+                }
+                
+                // 如果有剪贴板内容，添加清空剪贴板选项
+                const clipboardStatus = treeDataProvider.getClipboardStatus();
+                if (clipboardStatus) {
+                    options.push({ label: '清空剪贴板', description: '清空剪贴板内容', command: 'webdav.clearClipboard' });
+                }
+                
+                // 如果当前项目支持粘贴，添加粘贴选项
+                if ((item.type === 'directory' || item.type === 'file') && clipboardStatus) {
+                    options.push({ label: '粘贴', description: '粘贴到当前目录', command: 'webdav.paste' });
                 }
                 
                 const quickPick = vscode.window.createQuickPick();
@@ -375,6 +401,25 @@ export async function activate(context: vscode.ExtensionContext) {
                                     break;
                                 case 'webdav.refresh':
                                     await treeDataProvider.refresh();
+                                    break;
+                                case 'webdav.rename':
+                                    await treeDataProvider.renameItem(item);
+                                    break;
+                                case 'webdav.cut':
+                                    await treeDataProvider.cutItem(item);
+                                    updateClipboardContext();
+                                    break;
+                                case 'webdav.copy':
+                                    await treeDataProvider.copyItem(item);
+                                    updateClipboardContext();
+                                    break;
+                                case 'webdav.paste':
+                                    await treeDataProvider.pasteItem(item);
+                                    updateClipboardContext();
+                                    break;
+                                case 'webdav.clearClipboard':
+                                    treeDataProvider.clearClipboard();
+                                    updateClipboardContext();
                                     break;
                             }
                         } catch (error) {
@@ -656,7 +701,238 @@ export async function activate(context: vscode.ExtensionContext) {
                 logger.error('打开文档文件夹失败', error);
                 vscode.window.showErrorMessage('打开Documents文件夹失败');
             }
-        })
+        }),
+
+        // ================ 新增：重命名命令 ================
+        vscode.commands.registerCommand('webdav.rename', async (item?: any) => {
+            if (!item) {
+                // 尝试从当前选择获取
+                const selection = treeView.selection;
+                if (selection && selection.length > 0) {
+                    item = selection[0];
+                }
+            }
+            
+            if (item && !item.isSpecialItem) {
+                logger.info(`重命名: ${item.label}`);
+                await treeDataProvider.renameItem(item);
+            } else {
+                vscode.window.showWarningMessage('请先选择一个要重命名的项目');
+            }
+        }),
+
+        // ================ 新增：剪切命令 ================
+        vscode.commands.registerCommand('webdav.cut', async (item?: any) => {
+            if (!item) {
+                // 尝试从当前选择获取
+                const selection = treeView.selection;
+                if (selection && selection.length > 0) {
+                    item = selection[0];
+                }
+            }
+            
+            if (item && !item.isSpecialItem) {
+                logger.info(`剪切: ${item.label}`);
+                await treeDataProvider.cutItem(item);
+                updateClipboardContext();
+            } else {
+                vscode.window.showWarningMessage('请先选择一个要剪切的项目');
+            }
+        }),
+
+        // ================ 新增：复制命令 ================
+        vscode.commands.registerCommand('webdav.copy', async (item?: any) => {
+            if (!item) {
+                // 尝试从当前选择获取
+                const selection = treeView.selection;
+                if (selection && selection.length > 0) {
+                    item = selection[0];
+                }
+            }
+            
+            if (item && !item.isSpecialItem) {
+                logger.info(`复制: ${item.label}`);
+                await treeDataProvider.copyItem(item);
+                updateClipboardContext();
+            } else {
+                vscode.window.showWarningMessage('请先选择一个要复制的项目');
+            }
+        }),
+
+        // ================ 修改：粘贴命令 ================
+        vscode.commands.registerCommand('webdav.paste', async (item?: any) => {
+            try {
+                logger.info('粘贴命令被调用', {
+                    itemProvided: !!item,
+                    itemType: item?.type,
+                    itemLabel: item?.label,
+                    source: item ? '上下文菜单' : '顶层工具栏'
+                });
+                
+                // 关键修复：检查是否是从顶层工具栏调用
+                // 如果 item 是 undefined 或具有特定的顶层工具栏标记
+                const isFromTopToolbar = !item || 
+                    (typeof item === 'object' && (
+                        item.isTopToolbar === true ||
+                        item.isFromTopToolbar === true ||
+                        (item.isSpecialItem && item.id === 'connect') ||
+                        item.label === 'WebDAV 文件管理器' // 工具栏标题
+                    ));
+                
+                logger.info(`粘贴命令来源判断: isFromTopToolbar=${isFromTopToolbar}`);
+                
+                // 获取根目录路径
+                const currentBasePath = treeDataProvider.getCurrentBasePath();
+                logger.info(`当前基础路径: ${currentBasePath}`);
+                
+                // 如果是顶层工具栏调用或需要粘贴到根目录，创建根目录项
+                if (isFromTopToolbar) {
+                    logger.info('从顶层工具栏调用，使用根目录进行粘贴');
+                    
+                    // 创建明确的根目录项
+                    item = {
+                        id: 'root-directory-from-toolbar',
+                        label: '根目录',
+                        type: 'directory' as const,
+                        path: currentBasePath,
+                        relativePath: '/',
+                        isDownloadable: false,
+                        isSpecialItem: false,
+                        isRootDirectory: true,
+                        isFromTopToolbar: true,
+                        isTopToolbar: true
+                    };
+                } else if (!item || (item && typeof item === 'object' && item.isSpecialItem)) {
+                    // 处理特殊项或无项目的情况
+                    logger.info('处理特殊项或无项目情况');
+                    item = {
+                        id: 'root-directory',
+                        label: '根目录',
+                        type: 'directory' as const,
+                        path: currentBasePath,
+                        relativePath: '/',
+                        isDownloadable: false,
+                        isSpecialItem: false,
+                        isRootDirectory: true,
+                        isFromTopToolbar: true
+                    };
+                }
+                
+                // 检查剪贴板状态
+                const clipboardStatus = treeDataProvider.getClipboardStatus();
+                if (!clipboardStatus) {
+                    vscode.window.showWarningMessage('剪贴板为空');
+                    return;
+                }
+                
+                logger.info('执行粘贴到:', {
+                    targetPath: item.path,
+                    targetLabel: item.label,
+                    itemType: item.type,
+                    clipboardStatus,
+                    isFromTopToolbar: item.isFromTopToolbar || false,
+                    isTopToolbar: item.isTopToolbar || false
+                });
+                
+                // 验证目标路径不是源路径的父目录（避免复制到自身）
+                const clipboardItem = treeDataProvider.getClipboardItem();
+                if (clipboardItem && item.path === clipboardItem.path) {
+                    logger.warn(`尝试复制到自身: ${clipboardItem.path} -> ${item.path}`);
+                    vscode.window.showWarningMessage('不能将项目复制到自身');
+                    return;
+                }
+                
+                await treeDataProvider.pasteItem(item);
+                updateClipboardContext();
+            } catch (error) {
+                logger.error('粘贴命令执行失败', error);
+                vscode.window.showErrorMessage(`粘贴失败: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }),
+
+        // ================ 新增：清空剪贴板命令 ================
+        vscode.commands.registerCommand('webdav.clearClipboard', async () => {
+            treeDataProvider.clearClipboard();
+            updateClipboardContext();
+            vscode.window.showInformationMessage('剪贴板已清空');
+        }),
+
+        // ================ 修复：显示剪贴板状态命令 ================
+        vscode.commands.registerCommand('webdav.showClipboard', async () => {
+            const status = treeDataProvider.getClipboardStatus();
+            if (status) {
+                const choice = await vscode.window.showInformationMessage(
+                    `剪贴板状态: ${status}`,
+                    '粘贴到当前目录',
+                    '粘贴到根目录',
+                    '清空剪贴板',
+                    '取消'
+                );
+                
+                if (choice === '粘贴到当前目录') {
+                    // 获取当前选中的项目
+                    const selection = treeView.selection;
+                    if (selection && selection.length > 0) {
+                        await treeDataProvider.pasteItem(selection[0]);
+                        updateClipboardContext();
+                    } else {
+                        // 如果没有选中，使用根目录
+                        const basePath = treeDataProvider.getCurrentBasePath();
+                        const rootItem: WebDAVTreeItem = {
+                            id: 'root-directory',
+                            label: '根目录',
+                            type: 'directory',
+                            path: basePath,
+                            relativePath: '/',
+                            isDownloadable: false,
+                            isSpecialItem: false,
+                            isRootDirectory: true
+                        };
+                        await treeDataProvider.pasteItem(rootItem);
+                        updateClipboardContext();
+                    }
+                } else if (choice === '粘贴到根目录') {
+                    // 使用根目录进行粘贴
+                    const basePath = treeDataProvider.getCurrentBasePath();
+                    const rootItem: WebDAVTreeItem = {
+                        id: 'root-directory',
+                        label: '根目录',
+                        type: 'directory',
+                        path: basePath,
+                        relativePath: '/',
+                        isDownloadable: false,
+                        isSpecialItem: false,
+                        isRootDirectory: true
+                    };
+                    await treeDataProvider.pasteItem(rootItem);
+                    updateClipboardContext();
+                } else if (choice === '清空剪贴板') {
+                    treeDataProvider.clearClipboard();
+                    updateClipboardContext();
+                    vscode.window.showInformationMessage('剪贴板已清空');
+                }
+            } else {
+                vscode.window.showInformationMessage('剪贴板为空');
+            }
+        }),
+        
+        // 粘贴到根目录命令
+        vscode.commands.registerCommand('webdav.pasteToRoot', async () => {
+            try {
+                logger.info('粘贴到根目录命令被调用');
+                const clipboardStatus = treeDataProvider.getClipboardStatus();
+                if (!clipboardStatus) {
+                    vscode.window.showWarningMessage('剪贴板为空');
+                    return;
+                }
+                
+                await treeDataProvider.pasteToRoot();
+                updateClipboardContext();
+            } catch (error) {
+                logger.error('粘贴到根目录失败', error);
+                vscode.window.showErrorMessage(`粘贴失败: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }),
     ];
     
     // 将所有命令和视图添加到订阅中

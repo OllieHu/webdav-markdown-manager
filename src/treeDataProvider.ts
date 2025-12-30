@@ -1,5 +1,3 @@
-// treeDataProvider.ts - 修复创建文件夹路径问题
-
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -21,6 +19,9 @@ export interface WebDAVTreeItem {
     children?: WebDAVTreeItem[];
     isSpecialItem?: boolean;
     specialAction?: 'connect' | 'openSettings' | 'refresh';
+    isRootDirectory?: boolean;
+    isFromTopToolbar?: boolean;
+    isTopToolbar?: boolean;
 }
 
 export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTreeItem> {
@@ -37,6 +38,14 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
     private saveListeners: Map<string, vscode.Disposable> = new Map();
     private connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
     private lastError: string | null = null;
+
+    // 剪贴板状态
+    private clipboard: {
+        item: WebDAVTreeItem;
+        operation: 'cut' | 'copy';
+        sourcePath: string;
+        timestamp: number;
+    } | null = null;
 
     constructor() {
         this.configManager = ConfigManager.getInstance();
@@ -188,7 +197,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             } else if (error.message.includes('ECONNREFUSED')) {
                 errorMessage = '无法连接到服务器，请检查服务器地址和端口';
             } else if (error.message.includes('ENOTFOUND')) {
-                errorMessage = '服务器地址解析失败，请检查网络设置';
+                errorMessage = '无法解析服务器地址，请检查网络设置';
             } else if (error.message === '连接已取消') {
                 errorMessage = '连接已取消';
             } else if (error.message.includes('SSL') || error.message.includes('证书')) {
@@ -633,38 +642,45 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         const isDirectory = element.type === 'directory';
         const isMarkdown = element.fileType === 'markdown';
 
-        // 创建树项
+        // 创建树项 - 修改文件夹的 collapsibleState
         const treeItem = new vscode.TreeItem(
             element.label,
             isDirectory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None
         );
 
-        // 为每个树项设置一个自定义命令，在点击时显示操作菜单
-        treeItem.command = {
-            command: 'webdav.showItemActions',
-            title: '显示操作',
-            arguments: [element]
-        };
+        // 修改：文件夹点击时展开/折叠，不执行命令
+        if (!isDirectory) {
+            // 文件仍然显示操作菜单
+            treeItem.command = {
+                command: 'webdav.showItemActions',
+                title: '显示操作',
+                arguments: [element]
+            };
+        } else {
+            // 文件夹不设置命令，让VS Code处理展开/折叠
+            // 这样用户点击文件夹时会自动展开/折叠
+        }
 
         // 设置图标
         if (isDirectory) {
             treeItem.iconPath = new vscode.ThemeIcon('folder');
-            treeItem.contextValue = 'webdav-directory';
+            // 添加粘贴上下文值
+            treeItem.contextValue = 'webdav-directory webdav-can-paste';
         } else if (isMarkdown) {
             treeItem.iconPath = new vscode.ThemeIcon('markdown');
-            treeItem.contextValue = 'webdav-file webdav-markdown';
+            treeItem.contextValue = 'webdav-file webdav-markdown webdav-can-paste';
         } else if (element.fileType === 'image') {
             treeItem.iconPath = new vscode.ThemeIcon('file-media');
-            treeItem.contextValue = 'webdav-file webdav-image';
+            treeItem.contextValue = 'webdav-file webdav-image webdav-can-paste';
         } else if (element.fileType === 'pdf') {
             treeItem.iconPath = new vscode.ThemeIcon('file-pdf');
-            treeItem.contextValue = 'webdav-file webdav-pdf';
+            treeItem.contextValue = 'webdav-file webdav-pdf webdav-can-paste';
         } else if (element.fileType === 'archive') {
             treeItem.iconPath = new vscode.ThemeIcon('file-zip');
-            treeItem.contextValue = 'webdav-file webdav-archive';
+            treeItem.contextValue = 'webdav-file webdav-archive webdav-can-paste';
         } else {
             treeItem.iconPath = new vscode.ThemeIcon('file');
-            treeItem.contextValue = 'webdav-file';
+            treeItem.contextValue = 'webdav-file webdav-can-paste';
         }
 
         // 设置描述信息（显示在右侧）
@@ -709,7 +725,8 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             '',
             '---',
             '**操作提示**:',
-            '- 单击: 显示操作菜单',
+            isDirectory ? '- 单击: 展开/折叠文件夹' : '- 单击: 显示操作菜单',
+            '- 右键点击: 显示完整操作菜单',
             '- 使用标题栏按钮进行快速操作'
         ].filter(line => line.trim() !== '');
 
@@ -807,7 +824,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     fullPath = `/${fileName}`;
                 } else {
                     fullPath = actualParentPath.endsWith('/') 
-                        ? `${actualParentPath}${fileName}`
+                        ? `${actualParentPath}${fileName}` 
                         : `${actualParentPath}/${fileName}`;
                 }
                 
@@ -1296,7 +1313,14 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         return this.currentBasePath;
     }
 
+    // ================ 新增：重命名功能 ================
+    
     public async renameItem(item: WebDAVTreeItem): Promise<void> {
+        if (!this.isConnected || !this.webdavClient) {
+            vscode.window.showErrorMessage('未连接到WebDAV服务器');
+            return;
+        }
+
         const newName = await vscode.window.showInputBox({
             prompt: '请输入新名称',
             value: item.label,
@@ -1304,156 +1328,551 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 if (!value.trim()) return '名称不能为空';
                 if (value.includes('/') || value.includes('\\')) return '名称不能包含路径分隔符';
                 if (value.includes('..')) return '名称不能包含上级目录符号';
+                if (value === item.label) return '新名称不能与当前名称相同';
+                
+                // 检查文件扩展名（如果是文件）
+                if (item.type === 'file') {
+                    const oldExt = path.extname(item.label);
+                    const newExt = path.extname(value);
+                    if (oldExt && !newExt) {
+                        return `请保留文件扩展名 ${oldExt}`;
+                    }
+                }
+                
                 return null;
             }
         });
 
-        if (newName && newName !== item.label) {
-            if (!this.webdavClient || !this.isConnected) {
-                vscode.window.showErrorMessage('未连接到WebDAV服务器');
-                return;
-            }
+        if (!newName || newName === item.label) return;
 
-            try {
+        try {
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `正在重命名 "${item.label}"...`,
+                cancellable: true
+            }, async (progress) => {
+                progress.report({ message: '准备重命名...' });
+                
                 const parentPath = path.dirname(item.path);
                 const newPath = parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
                 
+                logger.info(`重命名: ${item.path} -> ${newPath}`);
+                
+                // 检查目标路径是否存在
+                try {
+                    const exists = await this.webdavClient!.stat(newPath);
+                    if (exists) {
+                        throw new Error(`目标路径 "${newName}" 已存在`);
+                    }
+                } catch (error: any) {
+                    // 404错误表示目标不存在，可以继续
+                    if (!error.message.includes('404') && !error.message.includes('Not Found')) {
+                        throw error;
+                    }
+                }
+                
+                // 执行重命名（通过移动实现）
+                progress.report({ message: '执行重命名操作...', increment: 50 });
+                
                 if (item.type === 'directory') {
-                    // WebDAV重命名目录通常通过移动实现
-                    await this.webdavClient.createDirectory(newPath);
-                    
-                    // 复制目录内容（WebDAV标准重命名可能需要特殊处理）
-                    const contents = await this.webdavClient.getDirectoryContents(item.path);
-                    for (const content of contents) {
-                        const oldItemPath = `${item.path}/${content.basename}`;
-                        const newItemPath = `${newPath}/${content.basename}`;
-                        
-                        if (content.type === 'directory') {
-                            await this.renameItem({
-                                ...item,
-                                label: content.basename,
-                                path: oldItemPath
-                            });
-                        } else {
-                            const fileContent = await this.webdavClient.getFileContents(oldItemPath, { format: 'text' });
-                            await this.webdavClient.createFile(newItemPath, fileContent as string, true);
-                            await this.webdavClient.deleteFile(oldItemPath);
-                        }
-                    }
-                    
-                    // 删除原目录
-                    await this.webdavClient.deleteDirectory(item.path);
+                    await this.moveDirectory(item.path, newPath);
                 } else {
-                    // 重命名文件：下载、上传新文件、删除旧文件
-                    const content = await this.webdavClient.getFileContents(item.path, { format: 'text' });
-                    await this.webdavClient.createFile(newPath, content as string, true);
-                    await this.webdavClient.deleteFile(item.path);
+                    await this.moveFile(item.path, newPath);
                 }
                 
-                await this.refresh();
-                vscode.window.showInformationMessage(`已重命名为: ${newName}`);
+                progress.report({ message: '完成重命名', increment: 100 });
+            });
+            
+            await this.refresh();
+            vscode.window.showInformationMessage(`已重命名为: "${newName}"`);
+            
+        } catch (error: any) {
+            const errorMsg = error.message || '未知错误';
+            logger.error(`重命名失败: ${item.path}`, error);
+            vscode.window.showErrorMessage(`重命名失败: ${errorMsg}`);
+        }
+    }
+
+    // ================ 修改：剪切功能 ================
+
+    public async cutItem(item: WebDAVTreeItem): Promise<void> {
+        if (!this.isConnected) {
+            vscode.window.showErrorMessage('未连接到WebDAV服务器');
+            return;
+        }
+
+        // 检查文件是否存在
+        if (!this.webdavClient) {
+            vscode.window.showErrorMessage('WebDAV客户端未初始化');
+            return;
+        }
+
+        try {
+            // 验证文件/目录是否存在
+            await this.webdavClient.stat(item.path);
+            
+            // 剪切操作只是标记，不立即删除文件
+            this.clipboard = {
+                item,
+                operation: 'cut',
+                sourcePath: item.path,
+                timestamp: Date.now()
+            };
+            
+            const message = `已剪切 "${item.label}"，请在目标位置粘贴`;
+            vscode.window.showInformationMessage(message);
+            logger.info(`剪切项目: ${item.label} (${item.path}) - 已标记，文件保留在原始位置`);
+            this.updateContext(); // 更新上下文
+        } catch (error: any) {
+            if (error.message.includes('404') || error.message.includes('Not Found')) {
+                vscode.window.showErrorMessage(`文件不存在: ${item.label}`);
+                this.clipboard = null;
+                this.updateContext();
+            } else {
+                vscode.window.showErrorMessage(`剪切失败: ${error.message}`);
+                logger.error(`剪切失败: ${item.path}`, error);
+            }
+        }
+    }
+
+    // ================ 修复：粘贴功能 ================
+    public async pasteItem(targetDirectory?: WebDAVTreeItem): Promise<void> {
+        if (!this.isConnected || !this.webdavClient) {
+            vscode.window.showErrorMessage('未连接到WebDAV服务器');
+            return;
+        }
+
+        if (!this.clipboard) {
+            vscode.window.showWarningMessage('剪贴板为空');
+            return;
+        }
+
+        // 检查剪贴板是否过期（10分钟）
+        if (Date.now() - this.clipboard.timestamp > 10 * 60 * 1000) {
+            vscode.window.showWarningMessage('剪贴板内容已过期');
+            this.clipboard = null;
+            this.updateContext();
+            return;
+        }
+
+        const { item, operation, sourcePath } = this.clipboard;
+        
+        // 验证源文件是否存在
+        try {
+            await this.webdavClient.stat(sourcePath);
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`源文件不存在，可能已被删除: ${item.label}`);
+            this.clipboard = null;
+            this.updateContext();
+            return;
+        }
+        
+        // 确定目标路径
+        let targetPath: string;
+        
+        // 关键修复：检查是否来自顶层工具栏或没有目标目录
+        if (!targetDirectory || targetDirectory.isFromTopToolbar) {
+            // 从顶层工具栏调用或没有选择目标，使用当前基础路径
+            targetPath = this.currentBasePath;
+            logger.info('粘贴到顶层目录，使用基础路径:', targetPath);
+        } else if (targetDirectory.type === 'directory') {
+            // 正常目录
+            targetPath = targetDirectory.path;
+        } else if (targetDirectory.type === 'file') {
+            // 如果是文件，使用其父目录
+            targetPath = path.dirname(targetDirectory.path);
+        } else {
+            // 其他情况使用基础路径
+            targetPath = this.currentBasePath;
+        }
+        
+        logger.info(`粘贴操作详情:`, {
+            operation: operation === 'copy' ? '复制' : '剪切',
+            sourcePath: sourcePath,
+            targetPath: targetPath,
+            itemLabel: item.label,
+            itemType: item.type,
+            targetDirectory: targetDirectory?.label || '无',
+            isFromTopToolbar: targetDirectory?.isFromTopToolbar || false
+        });
+        
+        // 构建新路径
+        const targetName = path.basename(sourcePath);
+        const newPath = targetPath === '/' ? `/${targetName}` : `${targetPath}/${targetName}`;
+        
+        logger.info(`构建的目标路径: ${newPath}, 源路径: ${sourcePath}`);
+        
+        // 检查是否复制到自身
+        if (sourcePath === newPath) {
+            logger.warn(`尝试复制到自身: ${sourcePath} -> ${newPath}`);
+            vscode.window.showWarningMessage('不能将项目复制到自身');
+            return;
+        }
+        
+        // 检查是否将目录复制到自身的子目录
+        if (item.type === 'directory' && newPath.startsWith(sourcePath + '/')) {
+            logger.warn(`尝试将目录复制到自身的子目录: ${sourcePath} -> ${newPath}`);
+            vscode.window.showWarningMessage('不能将目录复制到自身的子目录中');
+            return;
+        }
+            
+        try {
+            // 检查目标是否已存在
+            try {
+                const exists = await this.webdavClient.stat(newPath);
+                if (exists) {
+                    const choice = await vscode.window.showWarningMessage(
+                        `目标位置已存在 "${targetName}"，是否覆盖？`,
+                        { modal: true },
+                        '覆盖',
+                        '取消'
+                    );
+                    
+                    if (choice !== '覆盖') {
+                        return;
+                    }
+                    
+                    // 如果存在且是目录，需要递归删除
+                    if (exists.type === 'directory') {
+                        await this.webdavClient.deleteDirectory(newPath);
+                    } else {
+                        await this.webdavClient.deleteFile(newPath);
+                    }
+                }
             } catch (error: any) {
-                const errorMsg = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`重命名失败: ${errorMsg}`);
-                logger.error('重命名失败', error);
+                // 404错误表示目标不存在，可以继续
+                if (!error.message.includes('404') && !error.message.includes('Not Found')) {
+                    throw error;
+                }
+            }
+            
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `${operation === 'copy' ? '复制' : '移动'} "${item.label}"...`,
+                cancellable: true
+            }, async (progress, token) => {
+                token.onCancellationRequested(() => {
+                    logger.info('用户取消了粘贴操作');
+                });
+                
+                progress.report({ message: '准备操作...', increment: 10 });
+                
+                if (item.type === 'directory') {
+                    await this.copyOrMoveDirectory(sourcePath, newPath, operation, progress);
+                } else {
+                    await this.copyOrMoveFile(sourcePath, newPath, operation, progress);
+                }
+                
+                progress.report({ message: '完成', increment: 100 });
+            });
+            
+            const action = operation === 'copy' ? '复制' : '移动';
+            vscode.window.showInformationMessage(`已${action} "${item.label}" 到目标位置`);
+            
+            // 如果是剪切操作，清空剪贴板
+            if (operation === 'cut') {
+                this.clipboard = null;
+            }
+            
+            this.updateContext(); // 更新上下文
+            await this.refresh();
+            
+        } catch (error: any) {
+            const errorMsg = error.message || '未知错误';
+            logger.error(`粘贴失败: ${sourcePath}`, error);
+            vscode.window.showErrorMessage(`粘贴失败: ${errorMsg}`);
+            
+            // 如果剪切操作失败，清空剪贴板以避免混乱
+            if (operation === 'cut') {
+                this.clipboard = null;
+                this.updateContext();
             }
         }
     }
 
-    public async moveItem(item: WebDAVTreeItem, targetPath: string): Promise<void> {
-        if (!this.webdavClient || !this.isConnected) {
+    // ================ 新增：复制功能 ================
+    
+    public async copyItem(item: WebDAVTreeItem): Promise<void> {
+        if (!this.isConnected) {
             vscode.window.showErrorMessage('未连接到WebDAV服务器');
             return;
         }
 
-        try {
-            const targetFullPath = this.getFullPath(targetPath);
-            const newPath = targetFullPath === '/' ? `/${item.label}` : `${targetFullPath}/${item.label}`;
+        this.clipboard = {
+            item,
+            operation: 'copy',
+            sourcePath: item.path,
+            timestamp: Date.now()
+        };
+        
+        const message = `已复制 "${item.label}"，请在目标位置粘贴`;
+        vscode.window.showInformationMessage(message);
+        logger.info(`复制项目: ${item.label} (${item.path})`);
+        this.updateContext(); // 更新上下文
+    }
+
+    // ================ 新增：复制或移动目录 ================
+    
+    private async copyOrMoveDirectory(
+        sourcePath: string, 
+        targetPath: string, 
+        operation: 'copy' | 'cut',
+        progress: vscode.Progress<{ message?: string; increment?: number }>
+    ): Promise<void> {
+        if (!this.webdavClient) {
+            throw new Error('WebDAV客户端未初始化');
+        }
+        
+        logger.info(`${operation === 'copy' ? '复制' : '移动'}目录: ${sourcePath} -> ${targetPath}`);
+        
+        // 创建目标目录
+        progress.report({ message: '创建目录...', increment: 10 });
+        await this.webdavClient.createDirectory(targetPath);
+        
+        // 获取源目录内容
+        progress.report({ message: '读取目录内容...', increment: 20 });
+        const contents = await this.webdavClient.getDirectoryContents(sourcePath);
+        
+        // 递归处理子项
+        for (let i = 0; i < contents.length; i++) {
+            const item = contents[i];
+            const itemSourcePath = `${sourcePath}/${item.basename}`;
+            const itemTargetPath = `${targetPath}/${item.basename}`;
+            
+            const currentProgress = 20 + Math.floor((i / contents.length) * 70);
+            progress.report({ 
+                message: `${operation === 'copy' ? '复制' : '移动'} ${item.basename}...`, 
+                increment: currentProgress 
+            });
             
             if (item.type === 'directory') {
-                // 移动目录
-                await this.webdavClient.createDirectory(newPath);
-                
-                // 复制目录内容
-                const contents = await this.webdavClient.getDirectoryContents(item.path);
-                for (const content of contents) {
-                    const oldItemPath = `${item.path}/${content.basename}`;
-                    const newItemPath = `${newPath}/${content.basename}`;
-                    
-                    if (content.type === 'directory') {
-                        await this.moveItem({
-                            ...item,
-                            label: content.basename,
-                            path: oldItemPath
-                        }, `${targetPath}/${item.label}`);
-                    } else {
-                        const fileContent = await this.webdavClient.getFileContents(oldItemPath, { format: 'text' });
-                        await this.webdavClient.createFile(newItemPath, fileContent as string, true);
-                        await this.webdavClient.deleteFile(oldItemPath);
+                await this.copyOrMoveDirectory(itemSourcePath, itemTargetPath, operation, {
+                    report: (data) => {
+                        // 子进度回调
+                        progress.report({ message: data.message, increment: currentProgress });
                     }
-                }
-                
-                // 删除原目录
-                await this.webdavClient.deleteDirectory(item.path);
+                });
             } else {
-                // 移动文件
-                const content = await this.webdavClient.getFileContents(item.path, { format: 'text' });
-                await this.webdavClient.createFile(newPath, content as string, true);
-                await this.webdavClient.deleteFile(item.path);
+                await this.copyOrMoveFile(itemSourcePath, itemTargetPath, operation, {
+                    report: (data) => {
+                        progress.report({ message: data.message, increment: currentProgress });
+                    }
+                });
             }
-            
-            await this.refresh();
-            vscode.window.showInformationMessage(`已移动到: ${targetPath}`);
-        } catch (error: any) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`移动失败: ${errorMsg}`);
-            logger.error('移动失败', error);
+        }
+        
+        // 如果是移动操作，删除源目录
+        if (operation === 'cut') {
+            progress.report({ message: '删除源目录...', increment: 95 });
+            await this.webdavClient.deleteDirectory(sourcePath);
         }
     }
 
-    public async copyItem(item: WebDAVTreeItem, targetPath: string): Promise<void> {
-        if (!this.webdavClient || !this.isConnected) {
+    // ================ 新增：复制或移动文件（修复文件读取问题） ================
+    
+    private async copyOrMoveFile(
+        sourcePath: string, 
+        targetPath: string, 
+        operation: 'copy' | 'cut',
+        progress: vscode.Progress<{ message?: string; increment?: number }>
+    ): Promise<void> {
+        if (!this.webdavClient) {
+            throw new Error('WebDAV客户端未初始化');
+        }
+        
+        logger.info(`${operation === 'copy' ? '复制' : '移动'}文件: ${sourcePath} -> ${targetPath}`);
+        
+        progress.report({ message: '读取文件内容...', increment: 30 });
+        
+        // 获取文件内容 - 优先尝试文本模式，失败则尝试二进制
+        let content: string | Buffer;
+        let isBinary = false;
+        
+        try {
+            // 先尝试文本模式
+            content = await this.webdavClient.getFileContents(sourcePath, { format: 'text' });
+            content = content as string;
+            logger.debug(`成功以文本模式读取文件: ${sourcePath}, 长度: ${content.length}`);
+        } catch (error: any) {
+            // 如果文本模式失败，尝试二进制模式
+            logger.debug(`文本模式读取失败，尝试二进制模式: ${sourcePath}`);
+            try {
+                content = await this.webdavClient.getFileContents(sourcePath, { format: 'binary' });
+                isBinary = true;
+                logger.debug(`成功以二进制模式读取文件: ${sourcePath}, 长度: ${(content as Buffer).length}`);
+            } catch (binaryError: any) {
+                // 如果是404错误，文件可能已被删除（剪切操作中可能先删除了）
+                if (binaryError.message.includes('404') || binaryError.message.includes('Not Found')) {
+                    // 如果是剪切操作，文件应该存在；如果是复制操作，文件必须存在
+                    if (operation === 'cut') {
+                        logger.warn(`剪切操作中源文件不存在: ${sourcePath}，可能已被提前删除`);
+                        // 对于剪切操作，如果文件不存在，我们假设它已经被移动了
+                        // 直接创建空文件或跳过
+                        content = '';
+                    } else {
+                        throw new Error(`复制操作失败：源文件不存在: ${sourcePath}`);
+                    }
+                } else {
+                    throw new Error(`无法读取文件内容: ${binaryError.message || '未知错误'}`);
+                }
+            }
+        }
+        
+        progress.report({ message: '写入目标文件...', increment: 70 });
+        
+        // 写入目标文件
+        try {
+            if (isBinary) {
+                // 二进制文件需要使用底层client的putFileContents
+                const client = this.webdavClient.client;
+                if (!client) {
+                    throw new Error('WebDAV客户端未正确初始化');
+                }
+                await client.putFileContents(targetPath, content as Buffer, { overwrite: true });
+            } else {
+                // 文本文件使用我们的createFile方法
+                await this.webdavClient.createFile(targetPath, content as string, true);
+            }
+            logger.info(`文件写入成功: ${targetPath}`);
+        } catch (writeError: any) {
+            logger.error(`写入目标文件失败: ${targetPath}`, writeError);
+            throw writeError;
+        }
+        
+        // 如果是剪切操作，删除源文件
+        if (operation === 'cut') {
+            progress.report({ message: '删除源文件...', increment: 90 });
+            try {
+                await this.webdavClient.deleteFile(sourcePath);
+                logger.info(`删除源文件成功: ${sourcePath}`);
+            } catch (deleteError: any) {
+                // 如果文件已经被删除（可能在复制前已删除），忽略404错误
+                if (!deleteError.message.includes('404') && !deleteError.message.includes('Not Found')) {
+                    logger.error(`删除源文件失败: ${sourcePath}`, deleteError);
+                    throw deleteError;
+                } else {
+                    logger.warn(`源文件已不存在，跳过删除: ${sourcePath}`);
+                }
+            }
+        }
+    }
+
+    // ================ 新增：移动目录（用于重命名） ================
+    
+    private async moveDirectory(sourcePath: string, targetPath: string): Promise<void> {
+        await this.copyOrMoveDirectory(sourcePath, targetPath, 'cut', {
+            report: () => {} // 简单进度报告器
+        });
+    }
+
+    // ================ 新增：移动文件（用于重命名） ================
+    
+    private async moveFile(sourcePath: string, targetPath: string): Promise<void> {
+        await this.copyOrMoveFile(sourcePath, targetPath, 'cut', {
+            report: () => {} // 简单进度报告器
+        });
+    }
+
+    // ================ 新增：获取剪贴板状态 ================
+    
+    public getClipboardStatus(): string | null {
+        if (!this.clipboard) return null;
+        
+        const { item, operation, timestamp } = this.clipboard;
+        const action = operation === 'copy' ? '复制' : '剪切';
+        
+        // 检查是否过期
+        if (Date.now() - timestamp > 10 * 60 * 1000) {
+            this.clipboard = null;
+            this.updateContext();
+            return null;
+        }
+        
+        return `${action}: ${item.label}`;
+    }
+
+    // ================ 新增：清空剪贴板 ================
+    
+    public clearClipboard(): void {
+        this.clipboard = null;
+        vscode.window.showInformationMessage('已清空剪贴板');
+        this.updateContext();
+    }
+
+    // ================ 新增：获取根目录项 ================
+    public getRootDirectoryItem(): WebDAVTreeItem {
+        return {
+            id: 'root',
+            label: '根目录',
+            type: 'directory',
+            path: this.currentBasePath,
+            relativePath: '/',
+            isDownloadable: false,
+            isSpecialItem: false,
+            isRootDirectory: true
+        };
+    }
+
+    // ================ 新增：检查是否在顶层 ================
+    public isTopLevel(): boolean {
+        // 检查当前是否有选中的项目
+        // 如果没有，表示在顶层
+        return this.treeItems.length > 0 && !this.treeItems[0].isSpecialItem;
+    }
+
+    // ================ 新增：创建根目录项 ================
+    private createRootDirectoryItem(): WebDAVTreeItem {
+        return {
+            id: 'root-directory',
+            label: '根目录',
+            type: 'directory',
+            path: this.currentBasePath,
+            relativePath: '/',
+            isDownloadable: false,
+            isSpecialItem: false,
+            isRootDirectory: true,
+            isFromTopToolbar: true
+        };
+    }
+
+    // ================ 新增：获取剪贴板项 ================
+    public getClipboardItem(): WebDAVTreeItem | null {
+        if (!this.clipboard) return null;
+        return this.clipboard.item;
+    }
+
+    // ================ 修复：粘贴到根目录方法 ================
+    public async pasteToRoot(): Promise<void> {
+        if (!this.isConnected || !this.webdavClient) {
             vscode.window.showErrorMessage('未连接到WebDAV服务器');
             return;
         }
 
-        try {
-            const targetFullPath = this.getFullPath(targetPath);
-            const newPath = targetFullPath === '/' ? `/${item.label}` : `${targetFullPath}/${item.label}`;
-            
-            if (item.type === 'directory') {
-                // 复制目录
-                await this.webdavClient.createDirectory(newPath);
-                
-                // 复制目录内容
-                const contents = await this.webdavClient.getDirectoryContents(item.path);
-                for (const content of contents) {
-                    const oldItemPath = `${item.path}/${content.basename}`;
-                    const newItemPath = `${newPath}/${content.basename}`;
-                    
-                    if (content.type === 'directory') {
-                        await this.copyItem({
-                            ...item,
-                            label: content.basename,
-                            path: oldItemPath
-                        }, `${targetPath}/${item.label}`);
-                    } else {
-                        const fileContent = await this.webdavClient.getFileContents(oldItemPath, { format: 'text' });
-                        await this.webdavClient.createFile(newItemPath, fileContent as string, true);
-                    }
-                }
-            } else {
-                // 复制文件
-                const content = await this.webdavClient.getFileContents(item.path, { format: 'text' });
-                await this.webdavClient.createFile(newPath, content as string, true);
-            }
-            
-            await this.refresh();
-            vscode.window.showInformationMessage(`已复制到: ${targetPath}`);
-        } catch (error: any) {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`复制失败: ${errorMsg}`);
-            logger.error('复制失败', error);
+        if (!this.clipboard) {
+            vscode.window.showWarningMessage('剪贴板为空');
+            return;
         }
+
+        const rootItem: WebDAVTreeItem = {
+            id: 'root-directory-toolbar',
+            label: '根目录',
+            type: 'directory',
+            path: this.currentBasePath,
+            relativePath: '/',
+            isDownloadable: false,
+            isSpecialItem: false,
+            isRootDirectory: true,
+            isFromTopToolbar: true,
+            isTopToolbar: true
+        };
+
+        return await this.pasteItem(rootItem);
+    }
+
+    // ================ 新增：更新上下文状态 ================
+    public updateContext(): void {
+        // 更新剪贴板上下文
+        const clipboardStatus = this.getClipboardStatus();
+        vscode.commands.executeCommand('setContext', 'webdavClipboardNotEmpty', !!clipboardStatus);
     }
 }
