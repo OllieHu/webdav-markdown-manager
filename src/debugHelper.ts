@@ -37,6 +37,11 @@ export async function testWebDAVConnection(serverUrl: string, username: string, 
             cleanedServerUrl = cleanedServerUrl.slice(0, -1);
         }
         
+        // 创建带超时的Promise
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('连接测试超时，请检查网络连接或服务器状态')), 30000);
+        });
+        
         // 创建客户端
         channel.appendLine('1. 创建WebDAV客户端...');
         const client = createClient(cleanedServerUrl, {
@@ -50,7 +55,8 @@ export async function testWebDAVConnection(serverUrl: string, username: string, 
         // 测试根目录连接
         channel.appendLine('2. 测试根目录连接...');
         try {
-            const rootContents = await client.getDirectoryContents('/');
+            const rootContentsPromise = client.getDirectoryContents('/');
+            const rootContents = await Promise.race([rootContentsPromise, timeoutPromise]);
             const itemCount = Array.isArray(rootContents) ? rootContents.length : '未知';
             channel.appendLine(`✅ 根目录连接成功，找到 ${itemCount} 个项目`);
             
@@ -79,6 +85,8 @@ export async function testWebDAVConnection(serverUrl: string, username: string, 
                 channel.appendLine('   可能原因: 连接被拒绝，请检查服务器地址和端口');
             } else if (error.code === 'ETIMEDOUT') {
                 channel.appendLine('   可能原因: 连接超时，请检查网络连接或服务器状态');
+            } else if (error.message === '连接测试超时，请检查网络连接或服务器状态') {
+                channel.appendLine('   可能原因: 连接超时，请检查网络连接或服务器状态');
             }
             return;
         }
@@ -89,7 +97,8 @@ export async function testWebDAVConnection(serverUrl: string, username: string, 
         if (basePath && basePath !== '/') {
             channel.appendLine(`3. 测试基础路径 "${basePath}"...`);
             try {
-                const baseContents = await client.getDirectoryContents(basePath);
+                const baseContentsPromise = client.getDirectoryContents(basePath);
+                const baseContents = await Promise.race([baseContentsPromise, timeoutPromise]);
                 const itemCount = Array.isArray(baseContents) ? baseContents.length : '未知';
                 channel.appendLine(`✅ 基础路径访问成功，找到 ${itemCount} 个项目`);
                 

@@ -19,7 +19,7 @@
     "file manager",
     "sync"
   ],
-  "icon": "images/icon-128.png",
+  "icon": "images/icon.png",
   "main": "./out/extension.js",
   "activationEvents": [
     "onStartupFinished"
@@ -30,7 +30,7 @@
         {
           "id": "webdav-sidebar",
           "title": "WebDAV",
-          "icon": "images/cloud-icon.png"
+          "icon": "./images/cloud-icon.png"
         }
       ]
     },
@@ -46,7 +46,7 @@
     "viewsWelcome": [
       {
         "view": "webdavExplorer",
-        "contents": "还没有连接到WebDAV服务器。\n[点击连接](command:webdav.connect)"
+        "contents": "还没有连接到WebDAV服务器。\n[点击连接](command:webdav.connect)\n[打开设置](command:webdav.openSettings)"
       }
     ],
     "configuration": {
@@ -54,18 +54,18 @@
       "properties": {
         "webdav.serverUrl": {
           "type": "string",
-          "default": "",
-          "description": "WebDAV服务器地址，例如: https://dav.jianguoyun.com/dav"
+          "default": "https://dav.jianguoyun.com/dav",
+          "description": "WebDAV服务器地址，例如: https://dav.jianguoyun.com/dav 或 http://your-server/webdav\n坚果云: https://dav.jianguoyun.com/dav"
         },
         "webdav.username": {
           "type": "string",
           "default": "",
-          "description": "WebDAV用户名"
+          "description": "WebDAV用户名\n坚果云: 使用邮箱地址"
         },
         "webdav.password": {
           "type": "string",
           "default": "",
-          "description": "WebDAV密码",
+          "description": "WebDAV密码\n坚果云: 使用WebDAV专用密码（不是登录密码）",
           "scope": "machine"
         },
         "webdav.basePath": {
@@ -85,7 +85,7 @@
         },
         "webdav.localSyncPath": {
           "type": "string",
-          "default": "${workspaceFolder}/webdav-sync/${webdav.repositoryName}",
+          "default": "${userHome}/Documents/WebDAV-Sync/${webdav.repositoryName}",
           "description": "本地同步路径，支持变量: ${workspaceFolder}, ${userHome}, ${documents}, ${webdav.repositoryName}"
         },
         "webdav.autoSync": {
@@ -216,36 +216,6 @@
         "icon": "$(menu)"
       },
       {
-        "command": "webdav.quickCreateFile",
-        "title": "WebDAV: 快速新建文件",
-        "category": "WebDAV",
-        "icon": "$(new-file)"
-      },
-      {
-        "command": "webdav.quickCreateFolder",
-        "title": "WebDAV: 快速新建文件夹",
-        "category": "WebDAV",
-        "icon": "$(new-folder)"
-      },
-      {
-        "command": "webdav.quickDelete",
-        "title": "WebDAV: 快速删除",
-        "category": "WebDAV",
-        "icon": "$(trash)"
-      },
-      {
-        "command": "webdav.quickDownload",
-        "title": "WebDAV: 快速下载",
-        "category": "WebDAV",
-        "icon": "$(cloud-download)"
-      },
-      {
-        "command": "webdav.quickUpload",
-        "title": "WebDAV: 快速上传",
-        "category": "WebDAV",
-        "icon": "$(cloud-upload)"
-      },
-      {
         "command": "webdav.debugConnection",
         "title": "WebDAV: 调试连接",
         "category": "WebDAV",
@@ -256,12 +226,6 @@
         "title": "WebDAV: 检查连接状态",
         "category": "WebDAV",
         "icon": "$(check)"
-      },
-      {
-        "command": "webdav.showConfigStatus",
-        "title": "WebDAV: 显示配置状态",
-        "category": "WebDAV",
-        "icon": "$(settings)"
       }
     ],
     "menus": {
@@ -269,57 +233,42 @@
         {
           "command": "webdav.connect",
           "when": "view == webdavExplorer",
-          "group": "navigation@1"
+          "group": "navigation"
         },
         {
           "command": "webdav.openSettings",
           "when": "view == webdavExplorer",
-          "group": "navigation@2"
+          "group": "navigation"
         },
         {
           "command": "webdav.refresh",
           "when": "view == webdavExplorer",
-          "group": "navigation@3"
+          "group": "navigation"
         },
         {
           "command": "webdav.disconnect",
           "when": "view == webdavExplorer",
-          "group": "navigation@4"
+          "group": "navigation"
         },
         {
           "command": "webdav.openLocalFolder",
           "when": "view == webdavExplorer",
-          "group": "navigation@5"
+          "group": "navigation"
         },
         {
-          "command": "webdav.quickCreateFile",
+          "command": "webdav.createFile",
           "when": "view == webdavExplorer",
-          "group": "actions@1"
+          "group": "navigation"
         },
         {
-          "command": "webdav.quickCreateFolder",
+          "command": "webdav.createFolder",
           "when": "view == webdavExplorer",
-          "group": "actions@2"
+          "group": "navigation"
         },
         {
-          "command": "webdav.quickUpload",
+          "command": "webdav.upload",
           "when": "view == webdavExplorer",
-          "group": "actions@3"
-        },
-        {
-          "command": "webdav.quickDelete",
-          "when": "view == webdavExplorer",
-          "group": "actions@4"
-        },
-        {
-          "command": "webdav.quickDownload",
-          "when": "view == webdavExplorer",
-          "group": "actions@5"
-        },
-        {
-          "command": "webdav.saveAll",
-          "when": "view == webdavExplorer",
-          "group": "actions@6"
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -372,17 +321,6 @@
           "command": "webdav.checkConnection",
           "when": "view == webdavExplorer",
           "group": "inline"
-        },
-        {
-          "command": "webdav.showConfigStatus",
-          "when": "view == webdavExplorer",
-          "group": "inline"
-        }
-      ],
-      "commandPalette": [
-        {
-          "command": "webdav.connect",
-          "when": "false"
         }
       ]
     }
@@ -407,17 +345,17 @@
     "@vscode/test-electron": "^2.3.9"
   },
   "dependencies": {
-    "webdav": "^4.11.4",
+    "webdav": "^5.2.1",
     "axios": "^1.6.7"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-repo/webdav-markdown-manager.git"
+    "url": "https://github.com/OllieHu/webdav-markdown-manager.git"
   },
   "bugs": {
-    "url": "https://github.com/your-repo/webdav-markdown-manager/issues"
+    "url": "https://github.com/OllieHu/webdav-markdown-manager/issues"
   },
-  "homepage": "https://github.com/your-repo/webdav-markdown-manager#readme",
+  "homepage": "https://github.com/OllieHu/webdav-markdown-manager#readme",
   "license": "MIT",
   "preview": true
 }

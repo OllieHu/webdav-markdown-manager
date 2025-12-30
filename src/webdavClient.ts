@@ -76,7 +76,11 @@ export class MyWebDAVClient {
                 cleanedServerUrl = cleanedServerUrl.slice(0, -1);
             }
             
-            // 创建客户端
+            // 创建带超时的Promise
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('连接超时，请检查网络连接或服务器状态')), 30000);
+            });
+            
             tempLogger.debug(`创建WebDAV客户端...`);
             const client = createClient(cleanedServerUrl, {
                 username: username.trim(),
@@ -85,32 +89,19 @@ export class MyWebDAVClient {
                 maxContentLength: 100 * 1024 * 1024
             });
             
-            // 测试连接
+            // 测试连接（使用Promise.race添加超时）
             tempLogger.debug(`测试WebDAV连接...`);
             try {
-                // 测试根目录访问
-                await client.getDirectoryContents('/');
-                tempLogger.debug('根目录访问成功');
-                
-                // 测试指定路径访问
-                if (basePath && basePath !== '/') {
-                    try {
-                        await client.getDirectoryContents(basePath);
-                        tempLogger.info(`基础路径 ${basePath} 访问成功`);
-                    } catch (pathError: any) {
-                        // 404错误表示路径不存在，尝试创建
-                        if (pathError.status === 404) {
-                            tempLogger.info(`基础路径 ${basePath} 不存在，尝试创建`);
-                            await client.createDirectory(basePath);
-                            tempLogger.info(`基础路径 ${basePath} 创建成功`);
-                        } else {
-                            throw pathError;
-                        }
-                    }
-                }
+                const connectPromise = this.testConnectionInternal(client, basePath);
+                await Promise.race([connectPromise, timeoutPromise]);
                 
                 tempLogger.info('WebDAV连接测试成功');
             } catch (testError: any) {
+                // 错误处理保持不变...
+                if (testError.message === '连接超时，请检查网络连接或服务器状态') {
+                    throw testError;
+                }
+                
                 const status = testError.status;
                 if (status === 401 || status === 403) {
                     throw new Error('认证失败，请检查用户名和密码');
@@ -124,6 +115,8 @@ export class MyWebDAVClient {
                     throw new Error('连接被拒绝，请检查服务器地址和端口');
                 } else if (testError.code === 'ETIMEDOUT') {
                     throw new Error('连接超时，请检查网络连接');
+                } else if (testError.code === 'CERT_HAS_EXPIRED') {
+                    throw new Error('SSL证书已过期，请联系服务器管理员');
                 } else {
                     throw new Error(`连接测试失败: ${testError.message || '未知错误'}`);
                 }
@@ -148,6 +141,56 @@ export class MyWebDAVClient {
         }
     }
 
+    private async testConnectionInternal(client: any, basePath: string): Promise<void> {
+        // 测试根目录访问
+        try {
+            await client.getDirectoryContents('/');
+            tempLogger.debug('根目录访问成功');
+            
+            // 测试指定路径访问
+            if (basePath && basePath !== '/') {
+                try {
+                    await client.getDirectoryContents(basePath);
+                    tempLogger.info(`基础路径 ${basePath} 访问成功`);
+                } catch (pathError: any) {
+                    // 404错误表示路径不存在，尝试创建
+                    if (pathError.status === 404) {
+                        tempLogger.info(`基础路径 ${basePath} 不存在，尝试创建`);
+                        await client.createDirectory(basePath);
+                        tempLogger.info(`基础路径 ${basePath} 创建成功`);
+                    } else {
+                        throw pathError;
+                    }
+                }
+            }
+        } catch (error: any) {
+            // 如果是已知的WebDAV服务，可以尝试特殊处理
+            if (this.connection?.serverUrl.includes('jianguoyun.com')) {
+                tempLogger.debug('检测到坚果云服务器，尝试特殊处理...');
+                // 坚果云不需要测试根目录，可以直接测试基础路径
+                if (basePath && basePath !== '/') {
+                    try {
+                        await client.getDirectoryContents(basePath);
+                        tempLogger.info(`坚果云基础路径 ${basePath} 访问成功`);
+                    } catch (jianguoyunError: any) {
+                        if (jianguoyunError.status === 404) {
+                            tempLogger.info(`坚果云基础路径 ${basePath} 不存在，尝试创建`);
+                            await client.createDirectory(basePath);
+                            tempLogger.info(`坚果云基础路径 ${basePath} 创建成功`);
+                        } else {
+                            throw jianguoyunError;
+                        }
+                    }
+                } else {
+                    // 坚果云根目录需要特殊权限，跳过测试
+                    tempLogger.warn('坚果云根目录可能需要特殊权限，跳过测试');
+                }
+            } else {
+                throw error;
+            }
+        }
+    }
+
     async disconnect(): Promise<void> {
         if (this.connection) {
             this.connection.connected = false;
@@ -164,7 +207,12 @@ export class MyWebDAVClient {
         tempLogger.info(`获取目录内容: ${path}`);
         
         try {
-            const contents = await this.connection.client.getDirectoryContents(path, { deep: false });
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('获取目录内容超时')), 10000);
+            });
+            
+            const contentsPromise = this.connection.client.getDirectoryContents(path, { deep: false });
+            const contents = await Promise.race([contentsPromise, timeoutPromise]);
             
             let items: any[] = [];
             
@@ -215,7 +263,7 @@ export class MyWebDAVClient {
                 throw new Error(`路径不存在: ${path}`);
             } else if (error.message.includes('401') || error.status === 401) {
                 throw new Error('认证失败，请重新连接');
-            } else if (error.message.includes('timeout')) {
+            } else if (error.message.includes('timeout') || error.message.includes('超时')) {
                 throw new Error('请求超时，请检查网络连接');
             } else if (error.code === 'ENOTFOUND') {
                 throw new Error('网络连接失败，请检查网络设置');
@@ -277,10 +325,16 @@ export class MyWebDAVClient {
         tempLogger.info(`获取文件内容: ${path}, 格式: ${options.format || 'text'}`);
         
         try {
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('获取文件内容超时')), 15000);
+            });
+            
             if (options.format === 'binary') {
-                return await this.connection.client.getFileContents(path, { format: 'binary' }) as Buffer;
+                const contentPromise = this.connection.client.getFileContents(path, { format: 'binary' }) as Promise<Buffer>;
+                return await Promise.race([contentPromise, timeoutPromise]) as Buffer;
             } else {
-                return await this.connection.client.getFileContents(path, { format: 'text' }) as string;
+                const contentPromise = this.connection.client.getFileContents(path, { format: 'text' }) as Promise<string>;
+                return await Promise.race([contentPromise, timeoutPromise]) as string;
             }
         } catch (error: any) {
             tempLogger.error(`获取文件内容失败: ${path}`, error);
@@ -347,8 +401,12 @@ export class MyWebDAVClient {
         tempLogger.debug(`获取文件状态: ${path}`);
         
         try {
-            const stat = await this.connection.client.stat(path);
-            return stat;
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('获取文件状态超时')), 10000);
+            });
+            
+            const statPromise = this.connection.client.stat(path);
+            return await Promise.race([statPromise, timeoutPromise]);
         } catch (error) {
             tempLogger.error(`获取文件状态失败: ${path}`, error);
             throw error;
@@ -370,13 +428,19 @@ export class MyWebDAVClient {
         return this.connection || undefined;
     }
 
-    public async testConnection(): Promise<{ success: boolean; message: string; details?: any }> {
+    public async checkConnection(): Promise<{ success: boolean; message: string; details?: any }> {
         if (!this.connection || !this.connection.client) {
             return { success: false, message: '未连接' };
         }
         
         try {
-            const stat = await this.connection.client.stat('/');
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('连接测试超时')), 10000);
+            });
+            
+            const statPromise = this.connection.client.stat('/');
+            const stat = await Promise.race([statPromise, timeoutPromise]);
+            
             return { 
                 success: true, 
                 message: '连接正常',

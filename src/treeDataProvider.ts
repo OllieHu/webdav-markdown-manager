@@ -1,3 +1,5 @@
+// treeDataProvider.ts - 修复创建文件夹路径问题
+
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -17,6 +19,8 @@ export interface WebDAVTreeItem {
     size?: number;
     modified?: Date;
     children?: WebDAVTreeItem[];
+    isSpecialItem?: boolean;
+    specialAction?: 'connect' | 'openSettings' | 'refresh';
 }
 
 export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTreeItem> {
@@ -179,7 +183,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 errorMessage = '认证失败，请检查用户名和密码';
             } else if (error.message.includes('404') || error.message.includes('Not Found')) {
                 errorMessage = '服务器地址不存在或路径错误';
-            } else if (error.message.includes('timeout') || error.message.includes('timed out')) {
+            } else if (error.message.includes('timeout') || error.message.includes('timed out') || error.message.includes('超时')) {
                 errorMessage = '连接超时，请检查网络连接';
             } else if (error.message.includes('ECONNREFUSED')) {
                 errorMessage = '无法连接到服务器，请检查服务器地址和端口';
@@ -187,6 +191,8 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 errorMessage = '服务器地址解析失败，请检查网络设置';
             } else if (error.message === '连接已取消') {
                 errorMessage = '连接已取消';
+            } else if (error.message.includes('SSL') || error.message.includes('证书')) {
+                errorMessage = 'SSL证书错误，请联系服务器管理员';
             } else {
                 errorMessage = `连接失败: ${error.message || '未知错误'}`;
             }
@@ -197,7 +203,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 type: 'directory',
                 path: '/',
                 relativePath: '/',
-                isDownloadable: false
+                isDownloadable: false,
+                isSpecialItem: true,
+                specialAction: 'refresh'
             }];
             this._onDidChangeTreeData.fire();
             
@@ -295,7 +303,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 type: 'directory',
                 path: '/',
                 relativePath: '/',
-                isDownloadable: false
+                isDownloadable: false,
+                isSpecialItem: true,
+                specialAction: 'connect'
             }];
             this._onDidChangeTreeData.fire();
             return;
@@ -309,7 +319,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 type: 'directory',
                 path: '/',
                 relativePath: '/',
-                isDownloadable: false
+                isDownloadable: false,
+                isSpecialItem: true,
+                specialAction: 'openSettings'
             }];
             this._onDidChangeTreeData.fire();
             return;
@@ -330,6 +342,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     path: this.currentBasePath,
                     relativePath: '/',
                     isDownloadable: false,
+                    isSpecialItem: false,
                     children: []
                 }];
             }
@@ -345,7 +358,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     type: 'directory',
                     path: '/',
                     relativePath: '/',
-                    isDownloadable: false
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'connect'
                 }];
                 vscode.window.showErrorMessage('认证失败，请检查用户名和密码');
             } else if (error.message.includes('404') || error.message.includes('Not Found')) {
@@ -355,7 +370,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     type: 'directory',
                     path: '/',
                     relativePath: '/',
-                    isDownloadable: false
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'openSettings'
                 }];
                 vscode.window.showWarningMessage(`路径 "${this.currentBasePath}" 不存在，请检查基础路径设置`);
             } else if (error.message.includes('timeout')) {
@@ -365,9 +382,35 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     type: 'directory',
                     path: '/',
                     relativePath: '/',
-                    isDownloadable: false
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'refresh'
                 }];
                 vscode.window.showErrorMessage('请求超时，请检查网络连接');
+            } else if (error.message.includes('ECONNREFUSED')) {
+                this.treeItems = [{
+                    id: 'connection-error',
+                    label: '连接被拒绝，请检查服务器状态',
+                    type: 'directory',
+                    path: '/',
+                    relativePath: '/',
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'openSettings'
+                }];
+                vscode.window.showErrorMessage('连接被拒绝，请检查服务器地址和端口');
+            } else if (error.message.includes('ENOTFOUND')) {
+                this.treeItems = [{
+                    id: 'dns-error',
+                    label: '无法解析服务器地址',
+                    type: 'directory',
+                    path: '/',
+                    relativePath: '/',
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'openSettings'
+                }];
+                vscode.window.showErrorMessage('无法解析服务器地址，请检查网络连接');
             } else {
                 this.treeItems = [{
                     id: 'error',
@@ -375,7 +418,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     type: 'directory',
                     path: '/',
                     relativePath: '/',
-                    isDownloadable: false
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'refresh'
                 }];
                 vscode.window.showErrorMessage(`获取文件列表失败: ${error.message || '未知错误'}`);
             }
@@ -449,7 +494,8 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     relativePath: relativePath,
                     isDownloadable: !isDirectory,
                     size: item.size,
-                    modified: item.lastmod ? new Date(item.lastmod) : new Date()
+                    modified: item.lastmod ? new Date(item.lastmod) : new Date(),
+                    isSpecialItem: false
                 };
 
                 if (!isDirectory) {
@@ -474,6 +520,12 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                         treeItem.fileType = 'xml';
                     } else if (ext === 'yaml' || ext === 'yml') {
                         treeItem.fileType = 'yaml';
+                    } else if (ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'gif' || ext === 'bmp' || ext === 'webp') {
+                        treeItem.fileType = 'image';
+                    } else if (ext === 'pdf') {
+                        treeItem.fileType = 'pdf';
+                    } else if (ext === 'zip' || ext === 'rar' || ext === '7z' || ext === 'tar' || ext === 'gz') {
+                        treeItem.fileType = 'archive';
                     }
                 }
 
@@ -491,10 +543,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         }
         
         // 特殊项没有子项
-        if (element.id === 'connect' || element.id === 'auth-error' || 
-            element.id === 'network-error' || element.id === 'error' || 
-            element.id === 'empty' || element.id === 'path-error' ||
-            element.id === 'timeout-error') {
+        if (element.isSpecialItem) {
             return [];
         }
         
@@ -510,7 +559,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     type: 'directory',
                     path: element.path,
                     relativePath: element.relativePath,
-                    isDownloadable: false
+                    isDownloadable: false,
+                    isSpecialItem: true,
+                    specialAction: 'refresh'
                 }];
             }
         }
@@ -520,36 +571,55 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
 
     getTreeItem(element: WebDAVTreeItem): vscode.TreeItem {
         // 处理特殊item（连接提示等）
-        if (element.id === 'connect' || element.id === 'auth-error' || 
-            element.id === 'network-error' || element.id === 'error' || 
-            element.id === 'empty' || element.id === 'path-error' ||
-            element.id === 'timeout-error') {
+        if (element.isSpecialItem) {
             const treeItem = new vscode.TreeItem(
                 element.label,
                 vscode.TreeItemCollapsibleState.None
             );
             
-            // 设置图标
+            // 设置图标和上下文
             if (element.id === 'connect') {
                 treeItem.iconPath = new vscode.ThemeIcon('cloud');
                 treeItem.contextValue = 'webdav-action-item';
-                treeItem.command = {
-                    command: 'webdav.connect',
-                    title: '连接WebDAV',
-                    arguments: []
-                };
+                treeItem.description = '点击连接';
             } else if (element.id === 'empty') {
-                // 修复：空目录项直接执行创建文件命令
                 treeItem.iconPath = new vscode.ThemeIcon('folder');
                 treeItem.contextValue = 'webdav-empty-directory';
-                treeItem.command = {
-                    command: 'webdav.createFile',
-                    title: '创建文件',
-                    arguments: [{ relativePath: element.relativePath || '/' }]
-                };
+            } else if (element.id === 'auth-error') {
+                treeItem.iconPath = new vscode.ThemeIcon('warning');
+                treeItem.contextValue = 'webdav-error-item';
+                treeItem.description = '点击重试';
+            } else if (element.id === 'error') {
+                treeItem.iconPath = new vscode.ThemeIcon('error');
+                treeItem.contextValue = 'webdav-error-item';
+                treeItem.description = '点击刷新';
             } else {
                 treeItem.iconPath = new vscode.ThemeIcon('warning');
                 treeItem.contextValue = 'webdav-error-item';
+                treeItem.description = '点击修复';
+            }
+            
+            // 根据specialAction设置不同的命令
+            if (element.specialAction === 'connect') {
+                treeItem.command = {
+                    command: 'webdav.connect',
+                    title: '连接服务器',
+                    arguments: []
+                };
+            } else if (element.specialAction === 'openSettings') {
+                treeItem.command = {
+                    command: 'workbench.action.openSettings',
+                    title: '打开设置',
+                    arguments: ['webdav']
+                };
+            } else if (element.specialAction === 'refresh') {
+                treeItem.command = {
+                    command: 'webdav.refresh',
+                    title: '刷新',
+                    arguments: []
+                };
+            } else {
+                // 默认显示操作菜单
                 treeItem.command = {
                     command: 'webdav.showItemActions',
                     title: '显示操作',
@@ -583,6 +653,15 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         } else if (isMarkdown) {
             treeItem.iconPath = new vscode.ThemeIcon('markdown');
             treeItem.contextValue = 'webdav-file webdav-markdown';
+        } else if (element.fileType === 'image') {
+            treeItem.iconPath = new vscode.ThemeIcon('file-media');
+            treeItem.contextValue = 'webdav-file webdav-image';
+        } else if (element.fileType === 'pdf') {
+            treeItem.iconPath = new vscode.ThemeIcon('file-pdf');
+            treeItem.contextValue = 'webdav-file webdav-pdf';
+        } else if (element.fileType === 'archive') {
+            treeItem.iconPath = new vscode.ThemeIcon('file-zip');
+            treeItem.contextValue = 'webdav-file webdav-archive';
         } else {
             treeItem.iconPath = new vscode.ThemeIcon('file');
             treeItem.contextValue = 'webdav-file';
@@ -626,6 +705,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             `**类型**: ${element.type}`,
             element.modified ? `**修改时间**: ${element.modified.toLocaleString()}` : '',
             element.size ? `**大小**: ${this.formatSize(element.size)}` : '',
+            element.fileType ? `**文件类型**: ${element.fileType}` : '',
             '',
             '---',
             '**操作提示**:',
@@ -651,18 +731,54 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
     }
 
     async createFile(parentPath?: any): Promise<void> {
+        // 确保已经连接
+        if (!this.isConnected) {
+            vscode.window.showInformationMessage('请先连接WebDAV服务器', '连接').then(selection => {
+                if (selection === '连接') {
+                    vscode.commands.executeCommand('webdav.connect');
+                }
+            });
+            return;
+        }
+
+        if (!this.webdavClient) {
+            vscode.window.showErrorMessage('WebDAV客户端未初始化');
+            return;
+        }
+
         // 支持传入字符串或树项对象
-        let actualParentPath = '/';
+        let actualParentPath = this.currentBasePath;
+        
+        logger.debug(`创建文件 - 初始父路径: ${actualParentPath}, 传入参数: ${JSON.stringify(parentPath)}`);
         
         if (typeof parentPath === 'string') {
             actualParentPath = parentPath;
+            logger.debug(`创建文件 - 使用字符串路径: ${actualParentPath}`);
         } else if (parentPath && typeof parentPath === 'object') {
             // 如果是树项对象
             const item = parentPath as WebDAVTreeItem;
-            actualParentPath = item.relativePath || '/';
+            if (item.type === 'file') {
+                // 如果是文件，使用文件的父目录
+                actualParentPath = path.dirname(item.path);
+                logger.debug(`创建文件 - 文件节点 ${item.label} 的父目录: ${actualParentPath}`);
+            } else if (item.type === 'directory') {
+                actualParentPath = item.path;
+                logger.debug(`创建文件 - 目录节点 ${item.label} 的路径: ${actualParentPath}`);
+            } else if (item.isSpecialItem) {
+                // 如果是特殊项，使用当前基础路径
+                actualParentPath = this.currentBasePath;
+                logger.debug(`创建文件 - 特殊项，使用当前基础路径: ${actualParentPath}`);
+            }
         } else if (parentPath && typeof parentPath === 'object' && parentPath.relativePath) {
             // 如果是包含 relativePath 的对象
             actualParentPath = parentPath.relativePath || '/';
+            logger.debug(`创建文件 - 使用相对路径对象: ${actualParentPath}`);
+        }
+        
+        // 确保父路径不是根目录（除非当前基础路径就是根目录）
+        if (actualParentPath === '/' && this.currentBasePath && this.currentBasePath !== '/') {
+            actualParentPath = this.currentBasePath;
+            logger.debug(`创建文件 - 修正父路径为当前基础路径: ${actualParentPath}`);
         }
         
         const fileName = await vscode.window.showInputBox({
@@ -671,12 +787,13 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             validateInput: (value) => {
                 if (!value.trim()) return '文件名不能为空';
                 if (value.includes('/') || value.includes('\\')) return '文件名不能包含路径分隔符';
+                if (value.includes('..')) return '文件名不能包含上级目录符号';
                 return null;
             }
         });
 
         if (fileName) {
-            logger.info(`创建文件: ${fileName} 在 ${actualParentPath || '根目录'}`);
+            logger.info(`创建文件: ${fileName} 在 ${actualParentPath}`);
             
             if (!this.webdavClient || !this.isConnected) {
                 vscode.window.showErrorMessage('未连接到WebDAV服务器');
@@ -684,33 +801,78 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             }
 
             try {
-                const relativePath = actualParentPath && actualParentPath !== '/' ? `${actualParentPath}/${fileName}` : fileName;
-                const filePath = this.getFullPath(relativePath);
-                logger.debug(`创建文件完整路径: ${filePath}`);
+                // 构建完整路径
+                let fullPath: string;
+                if (actualParentPath === '/' || actualParentPath === '') {
+                    fullPath = `/${fileName}`;
+                } else {
+                    fullPath = actualParentPath.endsWith('/') 
+                        ? `${actualParentPath}${fileName}`
+                        : `${actualParentPath}/${fileName}`;
+                }
                 
-                await this.webdavClient.createFile(filePath, '');
+                logger.debug(`创建文件完整路径: ${fullPath}`);
+                
+                await this.webdavClient.createFile(fullPath, '');
                 await this.refresh();
                 vscode.window.showInformationMessage(`已创建文件: ${fileName}`);
             } catch (error: any) {
-                vscode.window.showErrorMessage(`创建文件失败: ${error.message || error}`);
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`创建文件失败: ${errorMsg}`);
                 logger.error('创建文件失败', error);
             }
         }
     }
 
     async createFolder(parentPath?: any): Promise<void> {
+        // 确保已经连接
+        if (!this.isConnected) {
+            vscode.window.showInformationMessage('请先连接WebDAV服务器', '连接').then(selection => {
+                if (selection === '连接') {
+                    vscode.commands.executeCommand('webdav.connect');
+                }
+            });
+            return;
+        }
+
+        if (!this.webdavClient) {
+            vscode.window.showErrorMessage('WebDAV客户端未初始化');
+            return;
+        }
+
         // 支持传入字符串或树项对象
-        let actualParentPath = '/';
+        let actualParentPath = this.currentBasePath;
+        
+        logger.debug(`创建文件夹 - 初始父路径: ${actualParentPath}, 传入参数: ${JSON.stringify(parentPath)}`);
         
         if (typeof parentPath === 'string') {
             actualParentPath = parentPath;
+            logger.debug(`创建文件夹 - 使用字符串路径: ${actualParentPath}`);
         } else if (parentPath && typeof parentPath === 'object') {
             // 如果是树项对象
             const item = parentPath as WebDAVTreeItem;
-            actualParentPath = item.relativePath || '/';
+            if (item.type === 'file') {
+                // 如果是文件，使用文件的父目录
+                actualParentPath = path.dirname(item.path);
+                logger.debug(`创建文件夹 - 文件节点 ${item.label} 的父目录: ${actualParentPath}`);
+            } else if (item.type === 'directory') {
+                actualParentPath = item.path;
+                logger.debug(`创建文件夹 - 目录节点 ${item.label} 的路径: ${actualParentPath}`);
+            } else if (item.isSpecialItem) {
+                // 如果是特殊项，使用当前基础路径
+                actualParentPath = this.currentBasePath;
+                logger.debug(`创建文件夹 - 特殊项，使用当前基础路径: ${actualParentPath}`);
+            }
         } else if (parentPath && typeof parentPath === 'object' && parentPath.relativePath) {
             // 如果是包含 relativePath 的对象
             actualParentPath = parentPath.relativePath || '/';
+            logger.debug(`创建文件夹 - 使用相对路径对象: ${actualParentPath}`);
+        }
+        
+        // 确保父路径不是根目录（除非当前基础路径就是根目录）
+        if (actualParentPath === '/' && this.currentBasePath && this.currentBasePath !== '/') {
+            actualParentPath = this.currentBasePath;
+            logger.debug(`创建文件夹 - 修正父路径为当前基础路径: ${actualParentPath}`);
         }
         
         const folderName = await vscode.window.showInputBox({
@@ -719,12 +881,13 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             validateInput: (value) => {
                 if (!value.trim()) return '文件夹名不能为空';
                 if (value.includes('/') || value.includes('\\')) return '文件夹名不能包含路径分隔符';
+                if (value.includes('..')) return '文件夹名不能包含上级目录符号';
                 return null;
             }
         });
 
         if (folderName) {
-            logger.info(`创建文件夹: ${folderName} 在 ${actualParentPath || '根目录'}`);
+            logger.info(`创建文件夹: ${folderName} 在 ${actualParentPath}`);
             
             if (!this.webdavClient || !this.isConnected) {
                 vscode.window.showErrorMessage('未连接到WebDAV服务器');
@@ -732,15 +895,56 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             }
 
             try {
-                const relativePath = actualParentPath && actualParentPath !== '/' ? `${actualParentPath}/${folderName}` : folderName;
-                const folderPath = this.getFullPath(relativePath);
-                logger.debug(`创建文件夹完整路径: ${folderPath}`);
+                // 检查父路径是否是文件
+                try {
+                    const stat = await this.webdavClient.stat(actualParentPath);
+                    if (stat && stat.type === 'file') {
+                        // 如果是文件，使用文件的父目录
+                        actualParentPath = path.dirname(actualParentPath);
+                        logger.debug(`创建文件夹 - 父路径是文件，调整为父目录: ${actualParentPath}`);
+                    }
+                } catch (error) {
+                    // 如果无法获取状态，可能是路径不存在，继续
+                    logger.debug(`创建文件夹 - 无法获取路径状态: ${actualParentPath}`, error);
+                }
                 
-                await this.webdavClient.createDirectory(folderPath);
+                // 构建完整路径
+                let fullPath: string;
+                if (actualParentPath === '/' || actualParentPath === '') {
+                    fullPath = `/${folderName}`;
+                } else {
+                    fullPath = actualParentPath.endsWith('/') 
+                        ? `${actualParentPath}${folderName}`
+                        : `${actualParentPath}/${folderName}`;
+                }
+                
+                logger.debug(`创建文件夹完整路径: ${fullPath}`);
+                
+                // 验证路径是否合法（不包含文件作为父目录）
+                const pathParts = fullPath.split('/');
+                for (let i = 1; i < pathParts.length; i++) {
+                    const checkPath = '/' + pathParts.slice(1, i).join('/');
+                    if (checkPath) {
+                        try {
+                            const stat = await this.webdavClient.stat(checkPath);
+                            if (stat && stat.type === 'file') {
+                                throw new Error(`路径包含文件作为父目录: ${checkPath}`);
+                            }
+                        } catch (error) {
+                            // 忽略不存在的路径
+                        }
+                    }
+                }
+                
+                await this.webdavClient.createDirectory(fullPath);
                 await this.refresh();
                 vscode.window.showInformationMessage(`已创建文件夹: ${folderName}`);
             } catch (error: any) {
-                vscode.window.showErrorMessage(`创建文件夹失败: ${error.message || error}`);
+                let errorMsg = error instanceof Error ? error.message : String(error);
+                if (errorMsg.includes('Path includes a file')) {
+                    errorMsg = '不能在文件路径下创建文件夹，请选择一个目录作为父目录';
+                }
+                vscode.window.showErrorMessage(`创建文件夹失败: ${errorMsg}`);
                 logger.error('创建文件夹失败', error);
             }
         }
@@ -772,7 +976,8 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                 await this.refresh();
                 vscode.window.showInformationMessage(`已删除: ${item.label}`);
             } catch (error: any) {
-                vscode.window.showErrorMessage(`删除失败: ${error.message || error}`);
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`删除失败: ${errorMsg}`);
                 logger.error('删除失败', error);
             }
         }
@@ -824,33 +1029,45 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
 
             vscode.window.showInformationMessage(`已下载: ${item.label}`, '打开文件夹').then(selection => {
                 if (selection === '打开文件夹') {
-                    const configCheck = this.configManager.checkConfiguration();
-                    const localSyncPath = configCheck.then(c => c.config.localSyncPath) || this.configManager.getLocalSyncPath();
-                    const relativePath = this.getRelativePath(item.path);
-                    const localRelativePath = relativePath === '/' ? '' : relativePath.replace(/^\//, '');
-                    const localPath = path.join(localSyncPath.toString(), localRelativePath);
-                    const dir = path.dirname(localPath);
-                    
-                    const { exec } = require('child_process');
-                    const platform = require('os').platform();
-                    let command = '';
-                    
-                    if (platform === 'win32') {
-                        command = `explorer "${dir}"`;
-                    } else if (platform === 'darwin') {
-                        command = `open "${dir}"`;
-                    } else if (platform === 'linux') {
-                        command = `xdg-open "${dir}"`;
-                    }
-                    
-                    if (command) {
-                        exec(command);
-                    }
+                    this.openLocalFolder(item);
                 }
             });
         } catch (error: any) {
-            vscode.window.showErrorMessage(`下载失败: ${error.message || error}`);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`下载失败: ${errorMsg}`);
             logger.error('下载失败', error);
+        }
+    }
+
+    private openLocalFolder(item: WebDAVTreeItem): void {
+        try {
+            // 获取本地同步路径
+            const configCheck = this.configManager.checkConfiguration();
+            configCheck.then(c => {
+                const localSyncPath = c.config.localSyncPath || this.configManager.getLocalSyncPath();
+                const relativePath = this.getRelativePath(item.path);
+                const localRelativePath = relativePath === '/' ? '' : relativePath.replace(/^\//, '');
+                const localPath = path.join(localSyncPath, localRelativePath);
+                const dir = path.dirname(localPath);
+                
+                const { exec } = require('child_process');
+                const platform = require('os').platform();
+                let command = '';
+                
+                if (platform === 'win32') {
+                    command = `explorer "${dir}"`;
+                } else if (platform === 'darwin') {
+                    command = `open "${dir}"`;
+                } else if (platform === 'linux') {
+                    command = `xdg-open "${dir}"`;
+                }
+                
+                if (command) {
+                    exec(command);
+                }
+            });
+        } catch (error) {
+            logger.error('打开本地文件夹失败', error);
         }
     }
 
@@ -932,18 +1149,38 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
     }
 
     async uploadFile(parentPath?: any): Promise<void> {
+        // 确保已经连接
+        if (!this.isConnected) {
+            vscode.window.showInformationMessage('请先连接WebDAV服务器', '连接').then(selection => {
+                if (selection === '连接') {
+                    vscode.commands.executeCommand('webdav.connect');
+                }
+            });
+            return;
+        }
+
+        if (!this.webdavClient) {
+            vscode.window.showErrorMessage('WebDAV客户端未初始化');
+            return;
+        }
+
         // 支持传入字符串或树项对象
-        let actualParentPath = '/';
+        let actualParentPath = this.currentBasePath;
         
         if (typeof parentPath === 'string') {
             actualParentPath = parentPath;
         } else if (parentPath && typeof parentPath === 'object') {
             // 如果是树项对象
             const item = parentPath as WebDAVTreeItem;
-            actualParentPath = item.relativePath || '/';
+            actualParentPath = item.path;
         } else if (parentPath && typeof parentPath === 'object' && parentPath.relativePath) {
             // 如果是包含 relativePath 的对象
             actualParentPath = parentPath.relativePath || '/';
+        }
+        
+        // 确保父路径不是根目录（除非当前基础路径就是根目录）
+        if (actualParentPath === '/' && this.currentBasePath && this.currentBasePath !== '/') {
+            actualParentPath = this.currentBasePath;
         }
         
         const options: vscode.OpenDialogOptions = {
@@ -985,8 +1222,9 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
                     
                     try {
                         const content = fs.readFileSync(filePath, 'utf-8');
-                        const relativePath = actualParentPath && actualParentPath !== '/' ? `${actualParentPath}/${fileName}` : fileName;
-                        const remotePath = this.getFullPath(relativePath);
+                        const remotePath = actualParentPath === '/' 
+                            ? `/${fileName}`
+                            : `${actualParentPath}/${fileName}`;
                         
                         await this.webdavClient!.createFile(remotePath, content, true);
                         successCount++;
@@ -1052,5 +1290,170 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
 
     public isConnectedToServer(): boolean {
         return this.isConnected;
+    }
+    
+    public getCurrentBasePath(): string {
+        return this.currentBasePath;
+    }
+
+    public async renameItem(item: WebDAVTreeItem): Promise<void> {
+        const newName = await vscode.window.showInputBox({
+            prompt: '请输入新名称',
+            value: item.label,
+            validateInput: (value) => {
+                if (!value.trim()) return '名称不能为空';
+                if (value.includes('/') || value.includes('\\')) return '名称不能包含路径分隔符';
+                if (value.includes('..')) return '名称不能包含上级目录符号';
+                return null;
+            }
+        });
+
+        if (newName && newName !== item.label) {
+            if (!this.webdavClient || !this.isConnected) {
+                vscode.window.showErrorMessage('未连接到WebDAV服务器');
+                return;
+            }
+
+            try {
+                const parentPath = path.dirname(item.path);
+                const newPath = parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
+                
+                if (item.type === 'directory') {
+                    // WebDAV重命名目录通常通过移动实现
+                    await this.webdavClient.createDirectory(newPath);
+                    
+                    // 复制目录内容（WebDAV标准重命名可能需要特殊处理）
+                    const contents = await this.webdavClient.getDirectoryContents(item.path);
+                    for (const content of contents) {
+                        const oldItemPath = `${item.path}/${content.basename}`;
+                        const newItemPath = `${newPath}/${content.basename}`;
+                        
+                        if (content.type === 'directory') {
+                            await this.renameItem({
+                                ...item,
+                                label: content.basename,
+                                path: oldItemPath
+                            });
+                        } else {
+                            const fileContent = await this.webdavClient.getFileContents(oldItemPath, { format: 'text' });
+                            await this.webdavClient.createFile(newItemPath, fileContent as string, true);
+                            await this.webdavClient.deleteFile(oldItemPath);
+                        }
+                    }
+                    
+                    // 删除原目录
+                    await this.webdavClient.deleteDirectory(item.path);
+                } else {
+                    // 重命名文件：下载、上传新文件、删除旧文件
+                    const content = await this.webdavClient.getFileContents(item.path, { format: 'text' });
+                    await this.webdavClient.createFile(newPath, content as string, true);
+                    await this.webdavClient.deleteFile(item.path);
+                }
+                
+                await this.refresh();
+                vscode.window.showInformationMessage(`已重命名为: ${newName}`);
+            } catch (error: any) {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`重命名失败: ${errorMsg}`);
+                logger.error('重命名失败', error);
+            }
+        }
+    }
+
+    public async moveItem(item: WebDAVTreeItem, targetPath: string): Promise<void> {
+        if (!this.webdavClient || !this.isConnected) {
+            vscode.window.showErrorMessage('未连接到WebDAV服务器');
+            return;
+        }
+
+        try {
+            const targetFullPath = this.getFullPath(targetPath);
+            const newPath = targetFullPath === '/' ? `/${item.label}` : `${targetFullPath}/${item.label}`;
+            
+            if (item.type === 'directory') {
+                // 移动目录
+                await this.webdavClient.createDirectory(newPath);
+                
+                // 复制目录内容
+                const contents = await this.webdavClient.getDirectoryContents(item.path);
+                for (const content of contents) {
+                    const oldItemPath = `${item.path}/${content.basename}`;
+                    const newItemPath = `${newPath}/${content.basename}`;
+                    
+                    if (content.type === 'directory') {
+                        await this.moveItem({
+                            ...item,
+                            label: content.basename,
+                            path: oldItemPath
+                        }, `${targetPath}/${item.label}`);
+                    } else {
+                        const fileContent = await this.webdavClient.getFileContents(oldItemPath, { format: 'text' });
+                        await this.webdavClient.createFile(newItemPath, fileContent as string, true);
+                        await this.webdavClient.deleteFile(oldItemPath);
+                    }
+                }
+                
+                // 删除原目录
+                await this.webdavClient.deleteDirectory(item.path);
+            } else {
+                // 移动文件
+                const content = await this.webdavClient.getFileContents(item.path, { format: 'text' });
+                await this.webdavClient.createFile(newPath, content as string, true);
+                await this.webdavClient.deleteFile(item.path);
+            }
+            
+            await this.refresh();
+            vscode.window.showInformationMessage(`已移动到: ${targetPath}`);
+        } catch (error: any) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`移动失败: ${errorMsg}`);
+            logger.error('移动失败', error);
+        }
+    }
+
+    public async copyItem(item: WebDAVTreeItem, targetPath: string): Promise<void> {
+        if (!this.webdavClient || !this.isConnected) {
+            vscode.window.showErrorMessage('未连接到WebDAV服务器');
+            return;
+        }
+
+        try {
+            const targetFullPath = this.getFullPath(targetPath);
+            const newPath = targetFullPath === '/' ? `/${item.label}` : `${targetFullPath}/${item.label}`;
+            
+            if (item.type === 'directory') {
+                // 复制目录
+                await this.webdavClient.createDirectory(newPath);
+                
+                // 复制目录内容
+                const contents = await this.webdavClient.getDirectoryContents(item.path);
+                for (const content of contents) {
+                    const oldItemPath = `${item.path}/${content.basename}`;
+                    const newItemPath = `${newPath}/${content.basename}`;
+                    
+                    if (content.type === 'directory') {
+                        await this.copyItem({
+                            ...item,
+                            label: content.basename,
+                            path: oldItemPath
+                        }, `${targetPath}/${item.label}`);
+                    } else {
+                        const fileContent = await this.webdavClient.getFileContents(oldItemPath, { format: 'text' });
+                        await this.webdavClient.createFile(newItemPath, fileContent as string, true);
+                    }
+                }
+            } else {
+                // 复制文件
+                const content = await this.webdavClient.getFileContents(item.path, { format: 'text' });
+                await this.webdavClient.createFile(newPath, content as string, true);
+            }
+            
+            await this.refresh();
+            vscode.window.showInformationMessage(`已复制到: ${targetPath}`);
+        } catch (error: any) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`复制失败: ${errorMsg}`);
+            logger.error('复制失败', error);
+        }
     }
 }

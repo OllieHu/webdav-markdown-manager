@@ -99,18 +99,19 @@ export class WebDAVFileManager {
         return false;
     }
     
-    public async saveAll(): Promise<void> {
-        if (!this.fileSystemProvider) {
-            return;
-        }
-        
-        try {
-            await this.fileSystemProvider.saveAll();
-        } catch (error) {
-            tempLogger.error('保存所有文件失败:', error);
-            throw error;
-        }
+public async saveAll(): Promise<void> {
+    if (!this.fileSystemProvider) {
+        throw new Error('文件系统提供程序未初始化');
     }
+    
+    try {
+        const result = await this.fileSystemProvider.saveAll();
+        tempLogger.info(`保存了 ${result.success} 个文件到云端`);
+    } catch (error) {
+        tempLogger.error('保存所有文件失败:', error);
+        throw error;
+    }
+}
     
     public closeAll(): void {
         if (this.fileSystemProvider) {
