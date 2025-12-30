@@ -91,13 +91,34 @@ export async function activate(context: vscode.ExtensionContext) {
         updateTreeViewDescription();
     });
     
+    // 创建剪贴板状态状态栏项
+    const clipboardStatusBarItem = vscode.window.createStatusBarItem(
+        vscode.StatusBarAlignment.Right,
+        100
+    );
+    clipboardStatusBarItem.command = 'webdav.showClipboard';
+    clipboardStatusBarItem.tooltip = '点击查看剪贴板状态';
+    clipboardStatusBarItem.show();
+    
+    // 更新剪贴板状态栏
+    const updateClipboardStatusBar = () => {
+        const clipboardStatus = treeDataProvider.getClipboardStatus();
+        if (clipboardStatus) {
+            clipboardStatusBarItem.text = `$(clipboard) ${clipboardStatus}`;
+            clipboardStatusBarItem.show();
+        } else {
+            clipboardStatusBarItem.hide();
+        }
+    };
+    
     // 设置初始剪贴板上下文
     vscode.commands.executeCommand('setContext', 'webdavClipboardNotEmpty', false);
     
-    // 更新剪贴板上下文
+    // 更新剪贴板上下文和状态栏
     const updateClipboardContext = () => {
         const clipboardStatus = treeDataProvider.getClipboardStatus();
         vscode.commands.executeCommand('setContext', 'webdavClipboardNotEmpty', !!clipboardStatus);
+        updateClipboardStatusBar();
     };
     
     // 注册所有命令
@@ -938,6 +959,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 将所有命令和视图添加到订阅中
     commands.forEach(command => context.subscriptions.push(command));
     context.subscriptions.push(treeView);
+    context.subscriptions.push(clipboardStatusBarItem);
     
     // 初始刷新
     try {

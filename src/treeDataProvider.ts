@@ -683,10 +683,18 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             treeItem.contextValue = 'webdav-file webdav-can-paste';
         }
 
-        // 设置描述信息（显示在右侧）
+        // 设置描述信息（显示在右侧）- 添加剪贴板状态标记
         let description = '';
+        
+        // 如果有剪贴板内容且当前项是剪贴板项，添加标记
+        const clipboardStatus = this.getClipboardStatus();
+        if (clipboardStatus && this.clipboard && this.clipboard.item.path === element.path) {
+            const action = this.clipboard.operation === 'copy' ? '复制' : '剪切';
+            description = `[${action}] `;
+        }
+        
         if (element.type === 'file') {
-            description = this.formatSize(element.size);
+            description += this.formatSize(element.size);
         }
         
         // 添加修改时间
@@ -714,7 +722,7 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
         
         treeItem.description = description.trim();
 
-        // 设置工具提示
+        // 设置工具提示 - 添加快捷键提示
         const tooltipLines = [
             `### ${element.label}`,
             `**路径**: ${element.path}`,
@@ -724,10 +732,20 @@ export class WebDAVTreeDataProvider implements vscode.TreeDataProvider<WebDAVTre
             element.fileType ? `**文件类型**: ${element.fileType}` : '',
             '',
             '---',
-            '**操作提示**:',
-            isDirectory ? '- 单击: 展开/折叠文件夹' : '- 单击: 显示操作菜单',
-            '- 右键点击: 显示完整操作菜单',
-            '- 使用标题栏按钮进行快速操作'
+            '**快捷操作**:',
+            '• 删除: Delete 键 或 右键 → 删除',
+            '• 重命名: F2 键 或 右键 → 重命名',
+            '• 剪切: Ctrl+X 或 右键 → 剪切',
+            '• 复制: Ctrl+C 或 右键 → 复制',
+            '• 粘贴: Ctrl+V 或 右键 → 粘贴',
+            '• 下载: 右键 → 下载',
+            '• 上传: 右键 → 上传',
+            '',
+            '**其他操作**:',
+            '- 单击: ' + (isDirectory ? '展开/折叠文件夹' : '显示操作菜单'),
+            '- 右键: 显示完整操作菜单',
+            '- 顶部工具栏: 快速操作按钮',
+            '- 文件: 双击打开编辑'
         ].filter(line => line.trim() !== '');
 
         treeItem.tooltip = new vscode.MarkdownString(tooltipLines.join('\n'));

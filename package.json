@@ -246,16 +246,10 @@
         "icon": "$(copy)"
       },
       {
-        "command": "webdav.paste",
-        "title": "WebDAV: 粘贴",
-        "category": "WebDAV",
-        "icon": "$(paste)"
-      },
-      {
         "command": "webdav.pasteToRoot",
         "title": "WebDAV: 粘贴到根目录",
         "category": "WebDAV",
-        "icon": "$(paste)"
+        "icon": "images/paste.png"
       },
       {
         "command": "webdav.clearClipboard",
@@ -290,6 +284,16 @@
         "command": "webdav.paste",
         "key": "ctrl+v",
         "when": "webdavExplorerFocus"
+      },
+      {
+        "command": "webdav.delete",
+        "key": "delete",
+        "when": "webdavExplorerFocus"
+      },
+      {
+        "command": "webdav.refresh",
+        "key": "f5",
+        "when": "webdavExplorerFocus"
       }
     ],
     "menus": {
@@ -297,37 +301,74 @@
         {
           "command": "webdav.connect",
           "when": "view == webdavExplorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(cloud)"
         },
         {
           "command": "webdav.openSettings",
           "when": "view == webdavExplorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(settings-gear)"
         },
         {
           "command": "webdav.refresh",
           "when": "view == webdavExplorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(refresh)"
         },
         {
           "command": "webdav.debugConnection",
           "when": "view == webdavExplorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(debug)"
         },
         {
           "command": "webdav.disconnect",
           "when": "view == webdavExplorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(cloud-download)"
         },
         {
           "command": "webdav.openLocalFolder",
           "when": "view == webdavExplorer",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(folder-opened)"
+        },
+        {
+          "command": "webdav.createFile",
+          "when": "view == webdavExplorer",
+          "group": "navigation",
+          "icon": "$(new-file)"
+        },
+        {
+          "command": "webdav.createFolder",
+          "when": "view == webdavExplorer",
+          "group": "navigation",
+          "icon": "$(new-folder)"
+        },
+        {
+          "command": "webdav.upload",
+          "when": "view == webdavExplorer",
+          "group": "navigation",
+          "icon": "$(cloud-upload)"
+        },
+        {
+          "command": "webdav.delete",
+          "when": "view == webdavExplorer && webdavExplorerFocus",
+          "group": "navigation",
+          "icon": "$(trash)"
+        },
+        {
+          "command": "webdav.paste",
+          "when": "view == webdavExplorer && webdavClipboardNotEmpty",
+          "group": "navigation",
+          "icon": "$(paste)"
         },
         {
           "command": "webdav.pasteToRoot",
           "when": "view == webdavExplorer && webdavClipboardNotEmpty",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(paste)"
         }
       ],
       "view/item/context": [
@@ -342,14 +383,34 @@
           "group": "inline"
         },
         {
+          "command": "webdav.rename",
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "1_modification",
+          "icon": "$(edit)"
+        },
+        {
           "command": "webdav.delete",
-          "when": "view == webdavExplorer && viewItem == webdav-file",
-          "group": "inline"
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "1_modification",
+          "icon": "$(trash)"
+        },
+        {
+          "command": "webdav.cut",
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "2_clipboard",
+          "icon": "$(cut)"
+        },
+        {
+          "command": "webdav.copy",
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
+          "group": "2_clipboard",
+          "icon": "$(copy)"
         },
         {
           "command": "webdav.paste",
-          "when": "view == webdavExplorer && viewItem == webdav-file && webdavClipboardNotEmpty",
-          "group": "inline"
+          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/ && webdavClipboardNotEmpty",
+          "group": "2_clipboard",
+          "icon": "$(paste)"
         },
         {
           "command": "webdav.createFile",
@@ -367,14 +428,10 @@
           "group": "inline"
         },
         {
-          "command": "webdav.delete",
-          "when": "view == webdavExplorer && viewItem == webdav-directory",
-          "group": "inline"
-        },
-        {
-          "command": "webdav.paste",
-          "when": "view == webdavExplorer && viewItem == webdav-directory && webdavClipboardNotEmpty",
-          "group": "inline"
+          "command": "webdav.clearClipboard",
+          "when": "view == webdavExplorer && webdavClipboardNotEmpty",
+          "group": "2_clipboard",
+          "icon": "$(close)"
         },
         {
           "command": "webdav.showItemActions",
@@ -384,26 +441,6 @@
         {
           "command": "webdav.checkConnection",
           "when": "view == webdavExplorer",
-          "group": "inline"
-        },
-        {
-          "command": "webdav.rename",
-          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
-          "group": "inline"
-        },
-        {
-          "command": "webdav.cut",
-          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
-          "group": "inline"
-        },
-        {
-          "command": "webdav.copy",
-          "when": "view == webdavExplorer && viewItem =~ /webdav-(file|directory)/",
-          "group": "inline"
-        },
-        {
-          "command": "webdav.clearClipboard",
-          "when": "view == webdavExplorer && webdavClipboardNotEmpty",
           "group": "inline"
         }
       ],
@@ -422,6 +459,10 @@
         },
         {
           "command": "webdav.paste",
+          "when": "webdavExplorerFocus"
+        },
+        {
+          "command": "webdav.delete",
           "when": "webdavExplorerFocus"
         }
       ]
