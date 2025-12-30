@@ -16,8 +16,9 @@ export class SettingsWebviewProvider {
         tempLogger.info('SettingsWebviewProvider已初始化');
     }
 
-    // 显示设置页面
+    // 显示设置页面 - 直接打开用户设置
     public async showSettings(): Promise<void> {
+        // 打开用户设置并筛选WebDAV相关设置
         await vscode.commands.executeCommand('workbench.action.openSettings', 'webdav');
     }
 
